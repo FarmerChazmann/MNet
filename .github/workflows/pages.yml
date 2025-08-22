@@ -1,6 +1,7 @@
 name: Deploy static to GitHub Pages
 on:
-  push: { branches: [main] }
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -20,7 +21,7 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: MNet    # ← if index.html is at repo root, change to: .
+          path: .   # deploy the repo root (index.html is here)
   deploy:
     environment:
       name: github-pages
