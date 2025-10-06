@@ -1,698 +1,286 @@
-<!DOCTYPE html>
+/* js/address-search.js
+ * Adds an address search toggle to the top bar and zooms the Leaflet map to level 10.
+ * Requires: window.map (Leaflet map instance) and a .top-bar element in the DOM.
+ */
+(function () {
+  const ZOOM_LEVEL = 10;
+  const PLACEHOLDER = "Search address or place...";
+  const TOP_CENTER_ID = "topCenter";
+  const SHELL_ID = "searchShell";
+  const STYLE_ID = "address-search-styles";
 
-<html lang="en">
-
-<head>
-
-  <meta charset="UTF-8" />
-
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-
-  <title>MNet</title>
-
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-
-  <script src="https://cdn.jsdelivr.net/npm/shpjs@5.0.0/dist/shp.min.js"></script>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
-
-  <style>
-
-:root {
-  --top-bar-height: clamp(52px, 7vh, 64px);
-  --panel-right: clamp(12px, 3vw, 24px);
-  --panel-top-offset: clamp(12px, 2.5vh, 24px);
-  --control-button-size: clamp(28px, 6vh, 38px);
-  --control-icon-size: clamp(12px, 3vh, 16px);
-  --panel-gap: clamp(6px, 1.8vh, 10px);
-  --layer-menu-offset: calc(var(--panel-right) + var(--control-button-size) + var(--panel-gap) + 8px);
-}
-
-    html, body { margin: 0; padding: 0; height: 100%; }
-
-    #map { height: 100%; }
-
-    /* Top Navigation Bar */
-
-    .top-bar {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: var(--top-bar-height);
-      background-color: #0d0d17;
-      z-index: 2000;
-      display: flex;
-      align-items: center;
-      justify-content: flex-end;
-      padding: 0 clamp(12px, 4vw, 20px);
-      gap: 12px;
+  function ensureMap() {
+    if (!window.map || typeof window.map.setView !== "function") {
+      console.warn("[address-search] window.map not ready. Retrying in 300ms...");
+      setTimeout(init, 300);
+      return false;
     }
-
-    .search-anchor {
-      display: flex;
-      align-items: center;
-    }
-
-    .upload-btn {
-
-      position: relative;
-
-      display: inline-flex;
-
-      align-items: center;
-
-      gap: 6px;
-
-      padding: 6px 12px;
-
-      border-radius: 6px;
-
-      background: #1f3763;
-
-      color: #fff;
-
-      font-size: 13px;
-
-      cursor: pointer;
-
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-
-      border: none;
-
-      user-select: none;
-
-    }
-
-    .upload-btn input {
-
-      position: absolute;
-
-      inset: 0;
-
-      opacity: 0;
-
-      cursor: pointer;
-
-    }
-
-    .upload-btn:hover {
-
-      background: #274a86;
-
-    }
-
-    /* Coverage Button styling */
-
-    .coverage-btn {
-
-      width: 32px;
-
-      height: 32px;
-
-      border: none;
-
-      outline: none;
-
-      cursor: pointer;
-
-      background: #fff;
-
-      border-radius: 6px;
-
-      display: flex;
-
-      align-items: center;
-
-      justify-content: center;
-
-      position: relative;
-
-      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-
-      font-family: Arial, sans-serif;
-
-      font-size: 10px;
-
-      color: #1f3763;
-
-      transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
-
-    }
-
-    .coverage-btn:hover {
-
-      background: #eef2ff;
-
-      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
-
-    }
-
-    .coverage-btn.simulation svg {
-
-      width: 18px;
-
-      height: 18px;
-
-      fill: currentColor;
-
-      transition: transform 0.2s ease;
-
-    }
-
-    .coverage-btn.simulation.active {
-
-      background: #1f3763;
-
-      color: #fff;
-
-      box-shadow: 0 2px 8px rgba(31,55,99,0.45);
-
-    }
-
-    .coverage-btn.simulation.active svg {
-
-      transform: scale(1.05);
-
-    }
-
-    .coverage-btn span {
-
-      position: absolute;
-
-      bottom: 2px;
-
-      font-weight: bold;
-      font-size: 8px;
-
-    }
-
-    .map-control-panel .coverage-btn {
-      border-radius: 50%;
-    }
-
-    .map-control-panel .coverage-btn span {
-      width: 100%;
-      text-align: center;
-    }
-
-    /* State 0: Empty circle */
-
-    .cov-state-0::before {
-
-      content: "";
-
-      width: 20px;
-
-      height: 20px;
-
-      border: 2px solid #b0b0b0;
-
-      border-radius: 50%;
-
-      position: absolute;
-
-    }
-
-    /* States 1-6: small blue dot + number (5..30) */
-
-    [class^="cov-state-"]:not(.cov-state-0):not(.cov-state-7):not(.cov-state-8)::before {
-
-      content: "";
-
-      width: 10px;
-
-      height: 10px;
-
-      background: #1f3763;
-
-      border-radius: 50%;
-
-      position: absolute;
-
-      top: 9px;
-
-    }
-
-    /* State 7: filled dark blue circle + number 40 */
-
-    .cov-state-7::before {
-
-      content: "";
-
-      width: 20px;
-
-      height: 20px;
-
-      background: #1f3763;
-
-      border-radius: 50%;
-
-      position: absolute;
-
-      top: 6px;
-
-    }
-
-    .cov-state-7 span { color: white; }
-
-    /* State 8: concentric blue shades (simulation icon) */
-
-    .cov-state-8::before {
-
-      content: "";
-
-      width: 24px;
-
-      height: 24px;
-
-      border-radius: 50%;
-
-      background: radial-gradient(
-
-        circle,
-
-        rgba(31,55,99,0.6) 0%,
-
-        rgba(31,55,99,0.3) 50%,
-
-        rgba(31,55,99,0.1) 100%
-
-      );
-
-      position: absolute;
-
-    }
-
-    .map-control-panel {
-      position: absolute;
-      top: 80px;
-      right: 16px;
-      z-index: 2100;
-      background: white;
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+    return true;
+  }
+
+  function injectStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+    const css = `
+      .search-shell {
+        position: relative;
+        display: flex;
+        align-items: center;
+      }
+      .search-toggle {
+        display: inline-flex;
+        align-items: center;
         gap: 6px;
-      padding: calc(var(--panel-gap) * 0.8);
-    }
-
-
-    .control-button {
-      background: #fff;
-      border: none;
-      border-radius: 50%;
-      width: var(--control-button-size);
-      height: var(--control-button-size);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      cursor: pointer;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.2);
-      position: relative;
-    }
-
-
-    .control-button:hover { background: #eef1ff; }
-
-    .control-button img, .control-button span, .control-button svg {
-      width: 16px;
-      height: 16px;
+        padding: 6px 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        background: rgba(255, 255, 255, 0.08);
+        color: #f5f7ff;
+        font-size: 13px;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+        transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+      }
+      .search-toggle svg {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+      }
+      .search-toggle:hover {
+        background: rgba(255, 255, 255, 0.16);
+      }
+      .search-shell.open .search-toggle {
+        background: #1f3763;
+        border-color: #1f3763;
+        color: #fff;
+      }
+      .search-panel {
+        position: absolute;
+        top: calc(100% + 10px);
+        right: 0;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 14px;
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+        opacity: 0;
+        pointer-events: none;
+        transform: translateY(-10px) scale(0.97);
+        transform-origin: top right;
+        transition: opacity 0.2s ease, transform 0.2s ease;
+        min-width: 280px;
+        z-index: 2100;
+      }
+      .search-shell.open .search-panel {
+        opacity: 1;
+        pointer-events: auto;
+        transform: translateY(0) scale(1);
+      }
+      .search-input {
+        flex: 1;
+        border: none;
+        outline: none;
         font-size: 14px;
-        line-height: 14px;
-    }
-
-    .control-button.upload {
-      overflow: hidden;
-    }
-
-    .control-button.upload input {
-      position: absolute;
-      inset: 0;
-      opacity: 0;
-      cursor: pointer;
-    }
-
-    .control-button.layers svg {
-      stroke: currentColor;
-    }
-
-    .control-button.layers.active {
-      background: #1f3763;
-      color: #fff;
-    }
-
-    .control-button.layers.active svg {
-      fill: currentColor;
-    }
-
-    .map-options {
-      position: absolute;
-      top: 80px;
-      right: 60px;
-      z-index: 2150;
-      background: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-      padding: calc(var(--panel-gap) * 0.8);
-      display: none;
-      flex-direction: column;
-      gap: 6px;
-      max-height: calc(100vh - 120px);
-      overflow-y: auto;
-    }
-    .map-options button {
-      font-weight: bold;
-      background: #f0f0f0;
-      border: none;
-      padding: calc(var(--panel-gap) * 0.8) calc(var(--panel-gap) * 1.4);
-      border-radius: 4px;
-      cursor: pointer;
-    }
-
-    .map-options button:hover {
-      background: #ddd;
-    }
-
-    .map-options button.active {
-      background: #1f3763;
-      color: #fff;
-    }
-
-    @media (max-width: 600px) {
-      .top-bar {
-        height: 56px;
-        padding: 0 12px;
+        padding: 6px 0;
+        border-bottom: 1px solid #d0d4dd;
       }
-
-      .map-control-panel {
-        top: 70px;
-        right: 12px;
-        padding: calc(var(--panel-gap) * 0.8);
-        gap: 6px;
+      .search-input:focus {
+        border-bottom-color: #1f3763;
       }
-
-      .control-button {
-        width: 30px;
-        height: 30px;
+      .search-btn {
+        height: 34px;
+        padding: 0 14px;
+        border: none;
+        border-radius: 8px;
+        background: #1f3763;
+        color: #fff;
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.18s ease;
       }
-
-      .control-button img, .control-button span, .control-button svg {
-        width: 16px;
-        height: 16px;
-        font-size: 14px;
-        line-height: 14px;
+      .search-btn:hover {
+        background: #274a86;
       }
-
-      .map-options {
-      top: 90px;
-      right: 60px;
+      .search-btn[disabled] {
+        opacity: 0.7;
+        cursor: progress;
       }
+      @media (max-width: 720px) {
+        .search-panel {
+          left: 50%;
+          right: auto;
+          transform-origin: top center;
+          min-width: min(320px, 80vw);
+        }
+        .search-panel {
+          transform: translate(-50%, -10px) scale(0.97);
+        }
+        .search-shell.open .search-panel {
+          transform: translate(-50%, 0) scale(1);
+        }
+      }
+    `;
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = css;
+    document.head.appendChild(style);
+  }
+
+  function createUI() {
+    const host = document.getElementById(TOP_CENTER_ID) || document.querySelector(".top-bar");
+    if (!host) {
+      console.warn(`[address-search] Could not find ${TOP_CENTER_ID} or .top-bar to mount the search UI.`);
+      return null;
     }
 
-</style>
+    const existingShell = document.getElementById(SHELL_ID);
+    if (existingShell) {
+      return {
+        shell: existingShell,
+        form: existingShell.querySelector("#searchForm"),
+        input: existingShell.querySelector("#searchInput"),
+        button: existingShell.querySelector(".search-btn"),
+        toggle: existingShell.querySelector("#searchToggle"),
+        closePanel: () => existingShell.classList.remove("open")
+      };
+    }
 
-</head>
+    const shell = document.createElement("div");
+    shell.id = SHELL_ID;
+    shell.className = "search-shell";
 
-<body>
-
-  <!-- Top Navigation Bar -->
-
-      <div class="top-bar">
-    <div id="topCenter" class="search-anchor"></div>
-  </div>
-
-  <!-- Map Container -->
-
-  <div id="map"></div>
-
-  <!-- Combined Map Control Panel -->
-  <div class="map-control-panel">
-    <button id="coverageBtn" class="coverage-btn cov-state-0" type="button" title="Coverage Rings">
-      <span></span>
-    </button>
-    <button id="simulationBtn" class="coverage-btn simulation" type="button" title="Toggle Simulation">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M9 6L18 12L9 18V6Z" fill="currentColor"/>
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.id = "searchToggle";
+    toggle.className = "search-toggle";
+    toggle.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="11" cy="11" r="7" stroke-width="2"/>
+        <line x1="16.5" y1="16.5" x2="21" y2="21" stroke-width="2" stroke-linecap="round"/>
       </svg>
-    </button>
-    <button id="measureBtn" class="coverage-btn" type="button" title="Measure Distance">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M14.5 5.49989L16 6.99989M11.5 8.49989L13 9.99989M8.49996 11.4999L9.99996 12.9999M5.49996 14.4999L6.99996 15.9999M2.56561 17.5656L6.43424 21.4342C6.63225 21.6322 6.73125 21.7313 6.84542 21.7683C6.94584 21.801 7.05401 21.801 7.15443 21.7683C7.2686 21.7313 7.3676 21.6322 7.56561 21.4342L21.4342 7.56561C21.6322 7.3676 21.7313 7.2686 21.7683 7.15443C21.801 7.05401 21.801 6.94584 21.7683 6.84542C21.7313 6.73125 21.6322 6.63225 21.4342 6.43424L17.5656 2.56561C17.3676 2.3676 17.2686 2.2686 17.1544 2.2315C17.054 2.19887 16.9458 2.19887 16.8454 2.2315C16.7313 2.2686 16.6322 2.3676 16.4342 2.56561L2.56561 16.4342C2.3676 16.6322 2.2686 16.7313 2.2315 16.8454C2.19887 16.9458 2.19887 17.054 2.2315 17.1544C2.2686 17.2686 2.3676 17.3676 2.56561 17.5656Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </button>
-    <button id="layerToggle" class="control-button layers" type="button" title="Base Maps" aria-haspopup="true" aria-controls="mapOptions" aria-expanded="false">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M3 7L12 3L21 7L12 11L3 7Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M3 12L12 16L21 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M3 17L12 21L21 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-    </button>
-    <label class="control-button upload" title="Upload Layer">
-      <input type="file" id="layerFileInput" accept=".zip,.kml,.geojson,.json" />
-      <img src="Assets/upload.svg" alt="Upload" />
-    </label>
-    <button class="control-button" type="button" onclick="locateMe()" title="Locate me">
-      <img src="https://cdn-icons-png.flaticon.com/512/684/684908.png" alt="Locate"/>
-    </button>
-    <button class="control-button" type="button" onclick="map.zoomIn()" aria-label="Zoom in"><span>+</span></button>
-    <button class="control-button" type="button" onclick="map.zoomOut()" aria-label="Zoom out"><span>-</span></button>
-  </div>
+      <span>Search</span>
+    `;
 
-  <!-- Map type selection panel -->
+    const form = document.createElement("form");
+    form.id = "searchForm";
+    form.className = "search-panel";
+    form.autocomplete = "off";
 
-  <div class="map-options" id="mapOptions">
+    const input = document.createElement("input");
+    input.id = "searchInput";
+    input.className = "search-input";
+    input.type = "text";
+    input.placeholder = PLACEHOLDER;
 
-    <button type="button" data-layer="street" onclick="switchLayer('street')">Street</button>
+    const button = document.createElement("button");
+    button.className = "search-btn";
+    button.type = "submit";
+    button.textContent = "Go";
 
-    <button type="button" data-layer="satellite" onclick="switchLayer('satellite')">Satellite</button>
+    form.appendChild(input);
+    form.appendChild(button);
+    shell.appendChild(toggle);
+    shell.appendChild(form);
+    host.appendChild(shell);
 
-    <button type="button" data-layer="hybrid" onclick="switchLayer('hybrid')">Hybrid</button>
+    const closePanel = () => shell.classList.remove("open");
 
-  </div>
-
-  <!-- Leaflet JS -->
-
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
-  <!-- Create the map + helpers BEFORE loading base-stations.js -->
-
-  <script>
-
-    // Base layers
-
-    const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-
-      attribution: '&copy; OpenStreetMap contributors'
-
+    toggle.addEventListener("click", () => {
+      const opening = !shell.classList.contains("open");
+      shell.classList.toggle("open", opening);
+      if (opening) {
+        requestAnimationFrame(() => input.focus({ preventScroll: true }));
+      }
     });
 
-    const satellite = L.tileLayer(
-
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-
-      { attribution: 'Imagery &copy; Esri' }
-
-    );
-
-    const esriLabels = L.tileLayer(
-
-      'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
-
-      { attribution: 'Labels &copy; Esri' }
-
-    );
-
-    const esriRoads = L.tileLayer(
-
-      'https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}',
-
-      { attribution: 'Roads &copy; Esri' }
-
-    );
-
-    const hybrid = L.layerGroup([satellite, esriRoads, esriLabels]);
-
-    const baseLayers = { street, satellite, hybrid };
-
-    // Map
-
-    window.map = L.map('map', {
-
-      zoom: 10,
-
-      layers: [hybrid],
-
-      zoomControl: false
-
+    document.addEventListener("click", evt => {
+      if (!shell.contains(evt.target)) {
+        closePanel();
+      }
     });
 
-    let currentBaseLayer = hybrid;
-
-    // Smoother camera moves (must come AFTER map is created)
-
-    map.options.zoomSnap = 0.15;
-
-    map.options.zoomDelta = 0.15;
-
-    map.options.zoomAnimation = true;
-
-    map.options.easeLinearity = 0.15;
-
-    // Geolocate user
-
-    if (navigator.geolocation) {
-
-      navigator.geolocation.getCurrentPosition(
-
-        ({ coords }) => map.setView([coords.latitude, coords.longitude], 13),
-
-        () => map.setView([-31.95289, 115.85152], 10) // Brisbane fallback
-
-      );
-
-    } else {
-
-      map.setView([-27.4698, 153.0251], 10);
-
-    }
-
-    const mapOptionsPanel = document.getElementById('mapOptions');
-    const layerToggleButton = document.getElementById('layerToggle');
-    const layerButtons = mapOptionsPanel ? Array.from(mapOptionsPanel.querySelectorAll('button[data-layer]')) : [];
-
-    function setLayerPanel(open) {
-      if (!mapOptionsPanel || !layerToggleButton) return;
-      if (open) {
-        mapOptionsPanel.style.display = 'flex';
-        const buttonRect = layerToggleButton.getBoundingClientRect();
-        const panelRect = mapOptionsPanel.getBoundingClientRect();
-        const panelHeight = panelRect.height || mapOptionsPanel.offsetHeight || 0;
-        const targetTop = window.scrollY + buttonRect.top - (panelHeight / 2) + (layerToggleButton.offsetHeight / 2);
-        const minTop = 60;
-        const maxTop = window.scrollY + window.innerHeight - panelHeight - 16;
-        mapOptionsPanel.style.top = `${Math.min(Math.max(targetTop, minTop), Math.max(minTop, maxTop))}px`;
-        const rightOffset = Math.max(window.innerWidth - buttonRect.right + 12, 24);
-        mapOptionsPanel.style.right = `${rightOffset}px`;
-        mapOptionsPanel.style.left = 'auto';
-      } else {
-        mapOptionsPanel.style.display = 'none';
+    document.addEventListener("keydown", evt => {
+      if (evt.key === "Escape") {
+        if (shell.classList.contains("open")) {
+          closePanel();
+          toggle.focus();
+        }
       }
-      layerToggleButton.classList.toggle('active', open);
-      layerToggleButton.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+
+    return { shell, form, input, button, toggle, closePanel };
+  }
+
+  async function geocodeAddress(q) {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Geocoding request failed");
+    const data = await res.json();
+    return Array.isArray(data) && data.length ? data[0] : null;
+  }
+
+  function init() {
+    if (!ensureMap()) return;
+    injectStyles();
+
+    const ui = createUI();
+    if (!ui) return;
+
+    const { form, input, button, closePanel } = ui;
+    if (form.dataset.bound === "1") {
+      return;
     }
+    form.dataset.bound = "1";
 
-    function toggleLayerPanel() {
-      if (!mapOptionsPanel) return;
-      const isOpen = mapOptionsPanel.style.display === 'flex';
-      setLayerPanel(!isOpen);
-    }
+    const searchLayer = L.layerGroup([], { pane: 'search-pane' }).addTo(map);
 
-    function highlightActiveLayer(layerKey) {
-      if (!layerButtons.length) return;
-      layerButtons.forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.layer === layerKey);
-      });
-    }
-
-    if (layerToggleButton && mapOptionsPanel) {
-      layerToggleButton.addEventListener('click', event => {
-        event.stopPropagation();
-        toggleLayerPanel();
-      });
-
-      document.addEventListener('click', event => {
-        if (!mapOptionsPanel.contains(event.target) && !layerToggleButton.contains(event.target)) {
-          setLayerPanel(false);
-        }
-      });
-
-      document.addEventListener('keydown', event => {
-        if (event.key === 'Escape') {
-          setLayerPanel(false);
-        }
-      });
-
-      setLayerPanel(false);
-    }
-
-    highlightActiveLayer('hybrid');
-
-    function switchLayer(type) {
-      const nextLayer = baseLayers[type];
-      if (!nextLayer) return;
-
-      if (nextLayer !== currentBaseLayer) {
-        map.addLayer(nextLayer);
-        if (currentBaseLayer) {
-          map.removeLayer(currentBaseLayer);
-        }
-        currentBaseLayer = nextLayer;
-      }
-
-      highlightActiveLayer(type);
-      setLayerPanel(false);
-    }
-
-    let userLocationMarker = null;
-
-    // Center map on user
-
-    function locateMe() {
-
-      if (!navigator.geolocation) {
-
-        alert('Geolocation is not supported by your browser.');
-
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const query = (input.value || "").trim();
+      if (!query) {
+        input.focus();
         return;
-
       }
 
-      navigator.geolocation.getCurrentPosition(
+      button.disabled = true;
+      const oldLabel = button.textContent;
+      button.textContent = "Searching...";
 
-        ({ coords }) => {
+      try {
+        searchLayer.clearLayers();
+        const result = await geocodeAddress(query);
+        if (!result) {
+          alert("No results found. Try a more specific address.");
+          return;
+        }
 
-          const position = [coords.latitude, coords.longitude];
+        const lat = parseFloat(result.lat);
+        const lon = parseFloat(result.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          alert("Sorry, address lookup returned invalid coordinates.");
+          return;
+        }
 
-          map.setView(position, 15);
+        const marker = L.marker([lat, lon]).addTo(searchLayer)
+          .bindPopup(result.display_name || "Search result");
 
-          if (userLocationMarker) {
+        map.setView([lat, lon], ZOOM_LEVEL);
+        marker.openPopup();
+        closePanel();
+      } catch (err) {
+        console.error(err);
+        alert("Sorry, address lookup failed. Please try again.");
+      } finally {
+        button.disabled = false;
+        button.textContent = oldLabel;
+      }
+    });
+  }
 
-            map.removeLayer(userLocationMarker);
-
-          }
-
-          userLocationMarker = L.marker(position).addTo(map)
-
-            .bindPopup('You are here').openPopup();
-
-        },
-
-        err => alert('Unable to retrieve your location.\n' + err.message)
-
-      );
-
-    }
-
-    window.switchLayer = switchLayer;
-
-
-    window.locateMe = locateMe;
-
-  </script>
-
-  <!-- Your base station code (updated) -->
-
-  <script src="js/base-stations.js"></script>
-
-  <script src="js/layer-upload.js"></script>
-
-  <script src="js/address-search.js"></script>
-
-</body>
-
-</html>
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
