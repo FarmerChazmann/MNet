@@ -1,3 +1,5 @@
+﻿import { ensureDataset, ensureLayer, ingestFeatureCollection } from "./db-ingest.js";
+
 (function () {
   if (!window.map) {
     console.error('[layer-upload] Leaflet map not found on window.map');
@@ -36,13 +38,31 @@
 
     const resetInput = () => { fileInput.value = ''; };
 
-    const handleGeoJSON = geojson => {
+    const handleGeoJSON = async (geojson) => {
       const normalised = normaliseGeoJSON(geojson);
       if (!normalised || !normalised.features || !normalised.features.length) {
         alert('No features were found in the uploaded file.');
         return;
       }
+
       renderGeoJSON(normalised);
+
+      const datasetName = (file.name || 'uploaded').replace(/\.(zip|kml|kmz|geojson|json|shp)$/i, '');
+
+      window.dispatchEvent(new CustomEvent('mnet:dataset', {
+        detail: { name: datasetName, geojson: normalised, sourceFilename: file.name }
+      }));
+
+      try {
+        const dataset = await ensureDataset(datasetName, file.name);
+        if (dataset) {
+          const layer = await ensureLayer(dataset.id, 'uploaded');
+          const inserted = await ingestFeatureCollection(dataset.id, layer?.id ?? null, normalised, { chunkSize: 1000 });
+          console.log(`[DB] Inserted ${inserted} features into dataset ${dataset.name}`);
+        }
+      } catch (error) {
+        console.error('DB ingest failed:', error);
+      }
     };
 
     if (name.endsWith('.zip')) {
