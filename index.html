@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 
 <html lang="en">
 
@@ -720,14 +720,21 @@
 
   </script>
 
-  <!-- Your base station code (updated) -->
-
-  <script src="js/base-stations.js"></script>
-
-  <script src="js/layer-upload.js"></script>
-
-  <script src="js/address-search.js"></script>
+  <!-- Modules -->
+  <script src="https://esm.sh/@supabase/supabase-js@2"></script>
+  <script type="module" src="js/auth.js"></script>
+  <script type="module" src="js/data.js"></script>
+  <script type="module" src="js/ui-auth.js"></script>
+  <script type="module" src="js/data-bridge.js"></script>
+  <script type="module" src="js/db-ingest.js"></script>
+  <script type="module" src="js/base-stations.js"></script>
+  <script type="module" src="js/layer-upload.js"></script>
+  <script type="module" src="js/address-search.js"></script>
 
 </body>
 
 </html>
+
+
+
+
