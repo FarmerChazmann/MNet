@@ -1,6 +1,7 @@
 // js/ui-auth.js
 import { getUser, signInWithPassword, signOut, onAuthStateChanged } from "./auth.js";
 import { openAllDatasets } from "./auto-open-all.js";
+import { migrateLocalToCloud } from "./data.js";
 
 const els = {
   avatarBtn: document.getElementById("profile-button"),
@@ -28,10 +29,10 @@ function toggleMenu(open) {
 
 function setAnonUI(isAnon) {
   if (els.anonBanner) els.anonBanner.style.display = isAnon ? "block" : "none";
-  if (els.form) els.form.style.display = isAnon ? "block" : "none";
-  if (els.signoutBtn) els.signoutBtn.style.display = isAnon ? "none" : "inline-flex";
   if (els.signedOut) els.signedOut.style.display = isAnon ? "block" : "none";
   if (els.signedIn) els.signedIn.style.display = isAnon ? "none" : "block";
+  if (els.signoutBtn) els.signoutBtn.style.display = isAnon ? "none" : "inline-flex";
+  if (els.form) els.form.style.display = "";
 }
 
 function deriveDisplayName(user) {
@@ -108,6 +109,8 @@ function updateUserUI(user) {
     if (els.displayName) els.displayName.textContent = "there";
     if (els.subtitle) els.subtitle.textContent = "MNet Cloud";
     if (els.accountName) els.accountName.textContent = "Guest";
+    if (els.email) els.email.value = "";
+    if (els.password) els.password.value = "";
     if (els.emailDisplay) {
       els.emailDisplay.textContent = "";
       els.emailDisplay.style.display = "none";
@@ -209,12 +212,28 @@ document.addEventListener("DOMContentLoaded", async () => {
   updateUserUI(initialUser);
 
   if (initialUser) {
+    try {
+      const migrated = await migrateLocalToCloud();
+      if (migrated) {
+        alert(`Saved ${migrated} local dataset(s) to your account.`);
+      }
+    } catch (err) {
+      console.error("[auth] migrateLocalToCloud failed:", err);
+    }
     try { await openAllDatasets(); } catch (err) { console.error(err); }
   }
 
   onAuthStateChanged(async (user) => {
     updateUserUI(user);
     if (user) {
+      try {
+        const migrated = await migrateLocalToCloud();
+        if (migrated) {
+          alert(`Saved ${migrated} local dataset(s) to your account.`);
+        }
+      } catch (err) {
+        console.error("[auth] migrateLocalToCloud failed:", err);
+      }
       try { await openAllDatasets(); } catch (err) { console.error(err); }
     } else {
       if (Array.isArray(window._openedDatasetLayers)) {

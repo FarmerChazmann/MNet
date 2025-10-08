@@ -29,7 +29,10 @@ function clearAutoOpened() {
 /** Fetch all datasets (with geojson) for the current user and draw them */
 export async function openAllDatasets() {
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  if (!user) {
+    console.info("[openAllDatasets] no user session; skipping.");
+    return;
+  }
 
   // If the uploader drew a temporary layer, clear it (optional)
   if (window._lastUploadedLayer) {
@@ -47,7 +50,10 @@ export async function openAllDatasets() {
     .limit(200);
 
   if (error) { console.error("[openAllDatasets] select error:", error); return; }
-  if (!data?.length) return;
+  if (!data?.length) {
+    console.info("[openAllDatasets] no datasets found for user.");
+    return;
+  }
 
   const groups = [];
   for (const row of data) {
