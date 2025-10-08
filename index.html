@@ -823,17 +823,23 @@
 
     const baseLayers = { street, satellite, hybrid };
 
-    // Map
+    const DEFAULT_CENTER = [-31.95289, 115.85152];
+    const DEFAULT_ZOOM = 9;
 
     window.map = L.map('map', {
-
-      zoom: 30,
-
       layers: [hybrid],
-
       zoomControl: false
-
     });
+
+    map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+
+    window.resetMapView = () => {
+      try {
+        map.setView(DEFAULT_CENTER, DEFAULT_ZOOM, { animate: false });
+      } catch (err) {
+        console.warn("resetMapView failed:", err);
+      }
+    };
 
     let currentBaseLayer = hybrid;
 
@@ -850,19 +856,10 @@
     // Geolocate user
 
     if (navigator.geolocation) {
-
       navigator.geolocation.getCurrentPosition(
-
         ({ coords }) => map.setView([coords.latitude, coords.longitude], 13),
-
-        () => map.setView([-31.95289, 115.85152], 10) // Brisbane fallback
-
+        () => window.resetMapView()
       );
-
-    } else {
-
-      map.setView([-27.4698, 153.0251], 10);
-
     }
 
     const mapOptionsPanel = document.getElementById('mapOptions');
@@ -1016,7 +1013,6 @@
 </body>
 
 </html>
-
 
 
 
