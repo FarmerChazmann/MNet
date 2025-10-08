@@ -1,5 +1,6 @@
 // js/auto-open-all.js
 import { supabase } from "./auth.js";
+import { cacheCloudDatasets, loadCachedCloudDatasets } from "./data.js";
 
 /** Add a FeatureCollection to Leaflet and return the created group layer */
 function addFC(fc, name) {
@@ -42,6 +43,9 @@ export async function openAllDatasets() {
 
   clearAutoOpened();
 
+  let rows = [];
+  let usedCache = false;
+
   const { data, error } = await supabase
     .from("datasets")
     .select("id,name,geojson,updated_at")
@@ -49,14 +53,29 @@ export async function openAllDatasets() {
     .order("updated_at", { ascending: false })
     .limit(200);
 
-  if (error) { console.error("[openAllDatasets] select error:", error); return; }
-  if (!data?.length) {
-    console.info("[openAllDatasets] no datasets found for user.");
-    return;
+  if (error) {
+    console.error("[openAllDatasets] select error:", error);
+    rows = await loadCachedCloudDatasets(user.id);
+    usedCache = true;
+  } else if (!data?.length) {
+    rows = await loadCachedCloudDatasets(user.id);
+    usedCache = true;
+    if (!rows.length) {
+      console.info("[openAllDatasets] no datasets found for user.");
+    }
+  } else {
+    rows = data;
+    try {
+      await cacheCloudDatasets(user.id, data);
+    } catch (cacheErr) {
+      console.warn("[openAllDatasets] failed to cache datasets locally:", cacheErr);
+    }
   }
 
+  if (!rows.length) return;
+
   const groups = [];
-  for (const row of data) {
+  for (const row of rows) {
     const g = addFC(row.geojson, row.name);
     if (g) groups.push(g);
   }
@@ -67,6 +86,12 @@ export async function openAllDatasets() {
     const fg = L.featureGroup(groups);
     window.map.fitBounds(fg.getBounds(), { padding: [24, 24] });
   } catch {}
+
+  if (window.map) {
+    setTimeout(() => {
+      try { window.map.invalidateSize(); } catch {}
+    }, 0);
+  }
 }
 
 // Auto-run after load (covers refresh with persisted session)

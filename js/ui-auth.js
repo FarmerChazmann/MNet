@@ -1,7 +1,7 @@
 // js/ui-auth.js
 import { getUser, signInWithPassword, signOut, onAuthStateChanged } from "./auth.js";
 import { openAllDatasets } from "./auto-open-all.js";
-import { migrateLocalToCloud } from "./data.js";
+import { migrateLocalToCloud, clearCloudCache } from "./data.js";
 
 const els = {
   avatarBtn: document.getElementById("profile-button"),
@@ -21,6 +21,8 @@ const els = {
   accountName: document.getElementById("profile-account-name"),
   rolePill: document.getElementById("profile-role-pill"),
 };
+
+let currentUserId = null;
 
 function toggleMenu(open) {
   if (!els.menu) return;
@@ -102,6 +104,7 @@ function deriveInitials(name, email) {
 
 function updateUserUI(user) {
   const isAnon = !user;
+  currentUserId = user?.id || null;
   setAnonUI(isAnon);
 
   if (isAnon) {
@@ -224,6 +227,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   onAuthStateChanged(async (user) => {
+    const previousUserId = currentUserId;
     updateUserUI(user);
     if (user) {
       try {
@@ -240,6 +244,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         try { window._openedDatasetLayers.forEach((layer) => window.map.removeLayer(layer)); } catch {}
       }
       window._openedDatasetLayers = [];
+      if (previousUserId) {
+        try { await clearCloudCache(previousUserId); } catch (err) { console.error("[auth] clearCloudCache failed:", err); }
+      }
     }
   });
 });
