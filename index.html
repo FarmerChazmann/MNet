@@ -996,23 +996,25 @@
 
   <!-- Create the map + helpers BEFORE loading base-stations.js -->
 
-
-
-  <!-- Modules -->
+ <!-- Supabase SDK -->
+  <script src="https://esm.sh/@supabase/supabase-js@2"></script>
+  
+  <!-- Your modules -->
   <script type="module" src="js/auth.js"></script>
   <script type="module" src="js/data.js"></script>
-  <script type="module" src="js/ui-auth.js"></script>
+  <script type="module" src="js/auto-open-all.js"></script>  <!-- draws all datasets -->
   <script type="module" src="js/data-bridge.js"></script>
   <script type="module" src="js/db-ingest.js"></script>
-  <script type="module" src="js/base-stations.js"></script>
   <script type="module" src="js/layer-upload.js"></script>
   <script type="module" src="js/address-search.js"></script>
-  <script type="module" src="js/auto-open-all.js"></script>
+  <script type="module" src="js/base-stations.js"></script>
+  <script type="module" src="js/ui-auth.js"></script>
 
 
 </body>
 
 </html>
+
 
 
 
