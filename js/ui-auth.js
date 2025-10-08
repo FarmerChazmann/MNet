@@ -223,7 +223,23 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (err) {
       console.error("[auth] migrateLocalToCloud failed:", err);
     }
-    try { await openAllDatasets(); } catch (err) { console.error(err); }
+    try {
+      try {
+        const loadResult = await openAllDatasets({ forceRefresh: true, fitToBounds: true });
+        if (loadResult?.error) {
+          console.error("[auth] openAllDatasets error:", loadResult.error);
+          alert("We signed you in but could not load your datasets from the cloud. Please check the console for details.");
+        } else if (!loadResult?.groups?.length) {
+          console.info("[auth] No datasets to draw for this user.");
+        }
+      } catch (err) {
+        console.error("[auth] openAllDatasets threw:", err);
+        alert("We signed you in but there was a problem drawing your datasets. Please check the console for details.");
+      }
+    } catch (err) {
+      console.error("[auth] openAllDatasets threw:", err);
+      alert("We signed you in but there was a problem drawing your datasets. Please check the console for details.");
+    }
   }
 
   onAuthStateChanged(async (user) => {
@@ -238,7 +254,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       } catch (err) {
         console.error("[auth] migrateLocalToCloud failed:", err);
       }
-      try { await openAllDatasets(); } catch (err) { console.error(err); }
+      const loadResult = await openAllDatasets({ forceRefresh: true, fitToBounds: true });
+      if (loadResult?.error) {
+        console.error("[auth] openAllDatasets error:", loadResult.error);
+        alert("We signed you in but could not load your datasets from the cloud. Please check the console for details.");
+      } else if (!loadResult?.groups?.length) {
+        console.info("[auth] No datasets to draw for this user.");
+      }
     } else {
       if (Array.isArray(window._openedDatasetLayers)) {
         try { window._openedDatasetLayers.forEach((layer) => window.map.removeLayer(layer)); } catch {}
@@ -246,6 +268,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       window._openedDatasetLayers = [];
       if (previousUserId) {
         try { await clearCloudCache(previousUserId); } catch (err) { console.error("[auth] clearCloudCache failed:", err); }
+      }
+      if (typeof window.resetMapView === "function") {
+        window.resetMapView();
+      }
+      if (window._lastUploadedLayer) {
+        try { window.map.removeLayer(window._lastUploadedLayer); } catch {}
+        window._lastUploadedLayer = null;
       }
     }
   });
