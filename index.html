@@ -82,6 +82,112 @@
       margin-right: 0;
     }
 
+    .attribute-mapper {
+      position: fixed;
+      inset: 0;
+      background: rgba(11, 13, 35, 0.74);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 3500;
+      padding: 20px;
+    }
+
+    .attribute-mapper.visible {
+      display: flex;
+    }
+
+    .attribute-mapper__dialog {
+      width: min(480px, 90vw);
+      background: #0f1327;
+      border-radius: 18px;
+      box-shadow: 0 20px 42px rgba(7, 10, 28, 0.35);
+      padding: 26px 28px;
+      color: #f5f7ff;
+      font: 500 14px/1.4 "Segoe UI", Arial, sans-serif;
+    }
+
+    .attribute-mapper__title {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 0 0 6px;
+    }
+
+    .attribute-mapper__subtitle {
+      margin: 0 0 18px;
+      color: rgba(245, 247, 255, 0.78);
+      font-size: 13px;
+    }
+
+    .attribute-mapper__fields {
+      display: grid;
+      gap: 16px;
+      margin-bottom: 22px;
+    }
+
+    .attribute-mapper__field label {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: rgba(245, 247, 255, 0.76);
+    }
+
+    .attribute-mapper__field select {
+      width: 100%;
+      padding: 9px 11px;
+      border-radius: 10px;
+      border: 1px solid rgba(125, 138, 180, 0.35);
+      background: rgba(12, 16, 36, 0.7);
+      color: #f5f7ff;
+      font-size: 13px;
+    }
+
+    .attribute-mapper__samples {
+      margin-top: 6px;
+      color: rgba(245, 247, 255, 0.55);
+      font-size: 12px;
+    }
+
+    .attribute-mapper__remember {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: rgba(245, 247, 255, 0.68);
+      margin-bottom: 18px;
+    }
+
+    .attribute-mapper__actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+
+    .attribute-mapper__button {
+      border: none;
+      border-radius: 10px;
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .attribute-mapper__button.secondary {
+      background: rgba(143, 153, 190, 0.16);
+      color: #d6ddff;
+    }
+
+    .attribute-mapper__button.primary {
+      background: #2b60f1;
+      color: #f5f7ff;
+    }
+
+    .attribute-mapper__button.primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     .upload-progress {
       position: absolute;
       top: calc(var(--top-bar-height) + 6px);
@@ -757,6 +863,45 @@
       <button id="profile-button" class="profile-avatar-btn" type="button" title="Account">
         <span id="profile-avatar-text" class="profile-avatar-text">??</span>
       </button>
+    </div>
+  </div>
+
+  <div id="attribute-mapper" class="attribute-mapper">
+    <div class="attribute-mapper__dialog">
+      <h2 class="attribute-mapper__title">Map file columns</h2>
+      <p class="attribute-mapper__subtitle">
+        Choose which properties in your file correspond to the grower, farm, and field values. These selections will be copied into the cloud database.
+      </p>
+      <form id="attribute-mapper-form" class="attribute-mapper__fields">
+        <div class="attribute-mapper__field">
+          <label for="mapper-grower">Grower name</label>
+          <select id="mapper-grower" required></select>
+          <div class="attribute-mapper__samples" id="mapper-grower-sample"></div>
+        </div>
+        <div class="attribute-mapper__field">
+          <label for="mapper-farm">Farm name</label>
+          <select id="mapper-farm" required></select>
+          <div class="attribute-mapper__samples" id="mapper-farm-sample"></div>
+        </div>
+        <div class="attribute-mapper__field">
+          <label for="mapper-field">Field name</label>
+          <select id="mapper-field" required></select>
+          <div class="attribute-mapper__samples" id="mapper-field-sample"></div>
+        </div>
+        <div class="attribute-mapper__field">
+          <label for="mapper-crop">Crop type (optional)</label>
+          <select id="mapper-crop"></select>
+          <div class="attribute-mapper__samples" id="mapper-crop-sample"></div>
+        </div>
+        <label class="attribute-mapper__remember">
+          <input type="checkbox" id="mapper-remember" />
+          Remember selections for next upload
+        </label>
+        <div class="attribute-mapper__actions">
+          <button type="button" id="mapper-cancel" class="attribute-mapper__button secondary">Cancel upload</button>
+          <button type="submit" id="mapper-apply" class="attribute-mapper__button primary">Continue</button>
+        </div>
+      </form>
     </div>
   </div>
 
