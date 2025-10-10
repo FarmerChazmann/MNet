@@ -1,4 +1,5 @@
 import { supabase, getUser } from "./auth.js";
+import { ingestGrowerHierarchy } from "./db-ingest.js";
 import { set, get, del, keys } from "https://esm.sh/idb-keyval@6";
 
 const LOCAL_PREFIX = "mnet:anon:";
@@ -17,18 +18,93 @@ const localNameFromKey = (key) =>
     ? key.slice(LOCAL_PREFIX.length)
     : key.slice(LEGACY_LOCAL_PREFIX.length);
 
+const toPlainObject = (value) => (value && typeof value === "object" ? value : {});
+
+const parseJsonMaybe = (value) => {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+
+const latestTimestamp = (current, candidate) => {
+  if (!candidate) return current || null;
+  if (!current) return candidate;
+  const currentMs = new Date(current).getTime();
+  const candidateMs = new Date(candidate).getTime();
+  return Number.isFinite(candidateMs) && candidateMs > currentMs ? candidate : current;
+};
+
+const normaliseGrowerDatasetName = (grower, fallback) =>
+  grower?.grower_name?.trim?.() ||
+  fallback ||
+  "Dataset";
+
+function normaliseRelationship(value) {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    return value.length ? value[0] : null;
+  }
+  return value;
+}
+
+export function rowsToDatasetCollections(rows = []) {
+  const grouped = new Map();
+  for (const row of rows) {
+    const farm = normaliseRelationship(row.farms ?? row.farm);
+    const grower = normaliseRelationship(farm?.growers ?? farm?.grower);
+
+    const datasetId = grower?.grower_id || farm?.farm_id || row.field_id;
+    const datasetName = normaliseGrowerDatasetName(grower, farm?.farm_name || row.field_name);
+    const geometry = parseJsonMaybe(row.field_boundary);
+    if (!geometry) continue;
+
+    const dataset = grouped.get(datasetId) ?? {
+      id: datasetId,
+      name: datasetName,
+      geojson: { type: "FeatureCollection", features: [] },
+      updated_at: row.updated_at ?? null,
+      grower_id: grower?.grower_id ?? null,
+      grower_name: grower?.grower_name ?? datasetName,
+    };
+
+    const baseProps = {
+      field_id: row.field_id,
+      field_name: row.field_name,
+      farm_id: farm?.farm_id ?? null,
+      farm_name: farm?.farm_name ?? null,
+      grower_id: grower?.grower_id ?? null,
+      grower_name: grower?.grower_name ?? null,
+      area_ha: row.area_ha ?? null,
+      perimeter_m: row.perimeter_m ?? null,
+    };
+
+    const properties = { ...toPlainObject(row.properties), ...baseProps };
+
+    dataset.geojson.features.push({
+      type: "Feature",
+      geometry,
+      properties,
+    });
+    dataset.updated_at = latestTimestamp(dataset.updated_at, row.updated_at ?? null);
+    grouped.set(datasetId, dataset);
+  }
+  return Array.from(grouped.values()).map((ds) => ({
+    ...ds,
+    featureCount: ds.geojson?.features?.length ?? 0,
+  }));
+}
+
 export async function saveDataset(name, geojson) {
   const user = await getUser();
   if (!user) {
     return set(localKey(name), geojson);
   }
-  const { data, error } = await supabase
-    .from("datasets")
-    .upsert({ user_id: user.id, name, geojson })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  // Cloud persists are handled by the upload pipeline to avoid duplicate ingests.
+  return null;
 }
 
 export async function listDatasets() {
@@ -40,12 +116,14 @@ export async function listDatasets() {
       .filter(isLocalKey)
       .map((key) => ({ id: key, name: localNameFromKey(key), source: "local" }));
   }
-  const { data, error } = await supabase
-    .from("datasets")
-    .select("id,name,inserted_at,updated_at")
-    .order("updated_at", { ascending: false });
-  if (error) throw error;
-  return data.map((d) => ({ ...d, source: "cloud" }));
+  const datasets = await fetchCloudDatasets(user.id);
+  return datasets.map((ds) => ({
+    id: ds.id,
+    name: ds.name,
+    featureCount: ds.featureCount,
+    updated_at: ds.updated_at,
+    source: "cloud",
+  }));
 }
 
 export async function loadDataset(idOrName) {
@@ -58,13 +136,12 @@ export async function loadDataset(idOrName) {
     }
     return get(idOrName);
   }
-  const { data, error } = await supabase
-    .from("datasets")
-    .select("geojson")
-    .eq("id", idOrName)
-    .single();
-  if (error) throw error;
-  return data.geojson;
+  const datasets = await fetchCloudDatasets(user.id);
+  const match = datasets.find((ds) => ds.id === idOrName || ds.name === idOrName);
+  if (!match) {
+    throw new Error(`Dataset "${idOrName}" not found in cloud storage.`);
+  }
+  return match.geojson;
 }
 
 export async function migrateLocalToCloud() {
@@ -76,9 +153,18 @@ export async function migrateLocalToCloud() {
     const key = String(rawKey);
     if (!isLocalKey(key)) continue;
     const name = localNameFromKey(key);
-    const geojson = await get(rawKey);
+    const stored = await get(rawKey);
     try {
-      await saveDataset(name, geojson);
+      const fc =
+        stored?.type === "FeatureCollection"
+          ? stored
+          : typeof stored === "string"
+            ? JSON.parse(stored)
+            : null;
+      if (!fc || fc.type !== "FeatureCollection") {
+        throw new Error("Local dataset is not a valid FeatureCollection");
+      }
+      await ingestGrowerHierarchy(fc, { replaceMissing: true });
       await del(rawKey);
       moved++;
     } catch (err) {
@@ -107,6 +193,9 @@ export async function cacheCloudDatasets(userId, datasets = []) {
         name: ds.name || "",
         geojson: ds.geojson,
         updated_at: ds.updated_at || null,
+        featureCount: ds.featureCount ?? (ds.geojson?.features?.length ?? 0),
+        grower_id: ds.grower_id ?? null,
+        grower_name: ds.grower_name ?? ds.name || "",
       })
     );
   await Promise.all(writes);
@@ -138,4 +227,36 @@ export async function clearCloudCache(userId) {
     .filter(({ key }) => key.startsWith(prefix))
     .map(({ raw }) => del(raw));
   await Promise.all(removals);
+}
+
+async function fetchFieldRows(_userId) {
+  const query = supabase
+    .from("fields")
+    .select(`
+      field_id,
+      field_name,
+      area_ha,
+      perimeter_m,
+      field_boundary,
+      properties,
+      updated_at,
+      farms (
+        farm_id,
+        farm_name,
+        growers (
+          grower_id,
+          grower_name
+        )
+      )
+    `)
+    .order("updated_at", { ascending: false })
+    .limit(500);
+  const { data, error } = await query;
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+}
+
+export async function fetchCloudDatasets(userId) {
+  const rows = await fetchFieldRows(userId);
+  return rowsToDatasetCollections(rows);
 }

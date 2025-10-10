@@ -1,6 +1,6 @@
 // js/auto-open-all.js
 import { supabase } from "./auth.js";
-import { cacheCloudDatasets, loadCachedCloudDatasets } from "./data.js";
+import { cacheCloudDatasets, loadCachedCloudDatasets, fetchCloudDatasets } from "./data.js";
 
 const toastEl = document.getElementById("data-toast");
 let toastTimer = null;
@@ -55,6 +55,9 @@ function normalizeRows(list) {
         row.geojson = null;
       }
     }
+    if (row?.geojson?.type === "FeatureCollection" && Array.isArray(row.geojson.features)) {
+      row.featureCount = row.geojson.features.length;
+    }
     return row;
   });
 }
@@ -92,18 +95,7 @@ export async function openAllDatasets(options = {}) {
 
   let fetchError = null;
   try {
-    const { data, error } = await supabase
-      .from("datasets")
-      .select("id,name,geojson,updated_at")
-      .not("geojson", "is", null)
-      .order("updated_at", { ascending: false })
-      .limit(200);
-
-    if (error) {
-      fetchError = error;
-      throw error;
-    }
-
+    const data = await fetchCloudDatasets(user.id);
     if (Array.isArray(data) && data.length) {
       rows = normalizeRows(data);
       source = "cloud";
@@ -139,13 +131,13 @@ export async function openAllDatasets(options = {}) {
       Array.isArray(row.geojson.features) &&
       row.geojson.features.length
   );
-  const datasetCount = validRows.length;
-  const totalFeatures = validRows.reduce(
+  const growersCount = validRows.length;
+  const totalFields = validRows.reduce(
     (sum, row) => sum + (Array.isArray(row.geojson?.features) ? row.geojson.features.length : 0),
     0
   );
 
-  if (!datasetCount) {
+  if (!growersCount) {
     if (fitToBounds && typeof window.resetMapView === "function") {
       window.resetMapView();
     }
@@ -188,9 +180,9 @@ export async function openAllDatasets(options = {}) {
   }
 
   if (typeof showDataToast === "function") {
-    const datasetWord = datasetCount === 1 ? "dataset" : "datasets";
-    const growerWord = totalFeatures === 1 ? "grower" : "growers";
-    let message = `Loaded ${totalFeatures} ${growerWord} from ${datasetCount} ${datasetWord}`;
+    const growerWord = growersCount === 1 ? "grower" : "growers";
+    const fieldWord = totalFields === 1 ? "field" : "fields";
+    let message = `Loaded ${totalFields} ${fieldWord} across ${growersCount} ${growerWord}`;
     if (source === "cache") {
       message += " (cached)";
     } else if (source === "error") {
