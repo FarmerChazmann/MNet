@@ -17,6 +17,28 @@ const progressRefs = {
 };
 
 let progressHideTimer = null;
+const ATTRIBUTE_STORAGE_KEY = "mnet:attribute-mapping:v1";
+let sessionAttributeMapping = null;
+
+const mapperRefs = {
+  container: null,
+  form: null,
+  remember: null,
+  cancel: null,
+  apply: null,
+  selects: {
+    grower: null,
+    farm: null,
+    field: null,
+    crop: null,
+  },
+  samples: {
+    grower: null,
+    farm: null,
+    field: null,
+    crop: null,
+  },
+};
 
 function ensureProgressRefs() {
   if (!progressRefs.container) {
@@ -63,6 +85,287 @@ function hideUploadProgress(delayMs = 600) {
     refs.fill.style.width = "0%";
     progressHideTimer = null;
   }, delayMs);
+}
+
+function ensureMapperRefs() {
+  if (!mapperRefs.container) {
+    mapperRefs.container = document.getElementById("attribute-mapper");
+    mapperRefs.form = document.getElementById("attribute-mapper-form");
+    mapperRefs.remember = document.getElementById("mapper-remember");
+    mapperRefs.cancel = document.getElementById("mapper-cancel");
+    mapperRefs.apply = document.getElementById("mapper-apply");
+    mapperRefs.selects.grower = document.getElementById("mapper-grower");
+    mapperRefs.selects.farm = document.getElementById("mapper-farm");
+    mapperRefs.selects.field = document.getElementById("mapper-field");
+    mapperRefs.selects.crop = document.getElementById("mapper-crop");
+    mapperRefs.samples.grower = document.getElementById("mapper-grower-sample");
+    mapperRefs.samples.farm = document.getElementById("mapper-farm-sample");
+    mapperRefs.samples.field = document.getElementById("mapper-field-sample");
+    mapperRefs.samples.crop = document.getElementById("mapper-crop-sample");
+  }
+  return mapperRefs.container ? mapperRefs : null;
+}
+
+function loadStoredAttributeMapping() {
+  try {
+    const raw = localStorage.getItem(ATTRIBUTE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && parsed.mapping) {
+      return parsed;
+    }
+  } catch (err) {
+    console.warn("[mapper] Failed to load stored mapping:", err);
+  }
+  return null;
+}
+
+function storeAttributeMapping(mapping, remember) {
+  try {
+    if (mapping && remember) {
+      localStorage.setItem(
+        ATTRIBUTE_STORAGE_KEY,
+        JSON.stringify({ remember: true, mapping })
+      );
+    } else {
+      localStorage.removeItem(ATTRIBUTE_STORAGE_KEY);
+    }
+  } catch (err) {
+    console.warn("[mapper] Failed to store mapping:", err);
+  }
+}
+
+function mappingIsValid(mapping, stats) {
+  if (!mapping) return false;
+  const required = ["grower", "farm", "field"];
+  return required.every((key) => {
+    const source = mapping[key];
+    return typeof source === "string" && source && stats.samples[source];
+  });
+}
+
+function collectPropertyStats(featureCollection, sampleLimit = 200) {
+  const samples = {};
+  if (!featureCollection || featureCollection.type !== "FeatureCollection") {
+    return { keys: [], samples };
+  }
+  const features = Array.isArray(featureCollection.features) ? featureCollection.features : [];
+  for (let i = 0; i < features.length && i < sampleLimit; i++) {
+    const props = features[i]?.properties || {};
+    Object.entries(props).forEach(([key, value]) => {
+      if (value === null || value === undefined) return;
+      if (!samples[key]) samples[key] = new Set();
+      const current = samples[key];
+      if (current.size < 5) current.add(value);
+    });
+  }
+  const keys = Object.keys(samples).sort((a, b) => a.localeCompare(b));
+  const flattened = keys.reduce((acc, key) => {
+    acc[key] = Array.from(samples[key]);
+    return acc;
+  }, {});
+  return { keys, samples: flattened };
+}
+
+function describeSamples(sampleList = []) {
+  if (!sampleList.length) return "No sample values";
+  const parts = sampleList.slice(0, 3).map((value) => `"${String(value)}"`);
+  const more = sampleList.length > parts.length ? "…" : "";
+  return `e.g. ${parts.join(", ")}${more}`;
+}
+
+function populateSelectWithKeys(select, keys, selectedValue) {
+  if (!select) return;
+  select.innerHTML = "";
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = "Select property";
+  select.appendChild(placeholder);
+  keys.forEach((key) => {
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = key;
+    select.appendChild(opt);
+  });
+  if (selectedValue && keys.includes(selectedValue)) {
+    select.value = selectedValue;
+  }
+}
+
+function updateMapperSamples(refs, stats) {
+  const { selects, samples } = refs;
+  Object.entries(selects).forEach(([name, select]) => {
+    const sampleEl = samples[name];
+    if (!sampleEl) return;
+    const key = select.value;
+    sampleEl.textContent = key ? describeSamples(stats.samples[key]) : "Select a property";
+  });
+}
+
+function updateMapperApplyState(refs) {
+  const { selects, apply } = refs;
+  if (!apply) return;
+  const requiredSelected =
+    selects.grower?.value &&
+    selects.farm?.value &&
+    selects.field?.value;
+  apply.disabled = !requiredSelected;
+}
+
+function showAttributeMapperDialog(stats, defaults = {}) {
+  const refs = ensureMapperRefs();
+  if (!refs) return Promise.resolve(null);
+  const { keys } = stats;
+  if (!keys.length) {
+    alert("This file does not contain any properties to map.");
+    return Promise.resolve(null);
+  }
+
+  populateSelectWithKeys(refs.selects.grower, keys, defaults.mapping?.grower || "");
+  populateSelectWithKeys(refs.selects.farm, keys, defaults.mapping?.farm || "");
+  populateSelectWithKeys(refs.selects.field, keys, defaults.mapping?.field || "");
+  populateSelectWithKeys(refs.selects.crop, keys, defaults.mapping?.crop || "");
+
+  if (refs.remember) {
+    refs.remember.checked = Boolean(defaults.remember);
+  }
+
+  const changeHandler = () => {
+    updateMapperSamples(refs, stats);
+    updateMapperApplyState(refs);
+  };
+
+  Object.values(refs.selects).forEach((select) => {
+    if (select) select.addEventListener("change", changeHandler);
+  });
+
+  updateMapperSamples(refs, stats);
+  updateMapperApplyState(refs);
+
+  refs.container.classList.add("visible");
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      refs.container.classList.remove("visible");
+      Object.values(refs.selects).forEach((select) => {
+        if (select) select.removeEventListener("change", changeHandler);
+      });
+      refs.form?.removeEventListener("submit", submitHandler);
+      refs.cancel?.removeEventListener("click", cancelHandler);
+    };
+
+    const cancelHandler = () => {
+      cleanup();
+      resolve(null);
+    };
+
+    const submitHandler = (event) => {
+      event.preventDefault();
+      const mapping = {
+        grower: refs.selects.grower?.value || "",
+        farm: refs.selects.farm?.value || "",
+        field: refs.selects.field?.value || "",
+        crop: refs.selects.crop?.value || "",
+      };
+      cleanup();
+      resolve({
+        mapping,
+        remember: Boolean(refs.remember?.checked),
+      });
+    };
+
+    refs.cancel?.addEventListener("click", cancelHandler);
+    refs.form?.addEventListener("submit", submitHandler);
+  });
+}
+
+async function requestAttributeMapping(featureCollection) {
+  const stats = collectPropertyStats(featureCollection);
+  const stored = loadStoredAttributeMapping();
+
+  if (stored?.remember && mappingIsValid(stored.mapping, stats)) {
+    sessionAttributeMapping = stored.mapping;
+    return stored.mapping;
+  }
+
+  if (mappingIsValid(sessionAttributeMapping, stats)) {
+    // Reuse in-session mapping if valid and user already confirmed earlier
+    return sessionAttributeMapping;
+  }
+
+  const defaultMapping =
+    (mappingIsValid(sessionAttributeMapping, stats) && sessionAttributeMapping) ||
+    (stored && mappingIsValid(stored.mapping, stats) ? stored.mapping : null);
+
+  const result = await showAttributeMapperDialog(stats, {
+    mapping: defaultMapping,
+    remember: stored?.remember ?? false,
+  });
+
+  if (!result || !mappingIsValid(result.mapping, stats)) {
+    return null;
+  }
+
+  sessionAttributeMapping = result.mapping;
+  storeAttributeMapping(result.mapping, result.remember);
+  return result.mapping;
+}
+
+function applyMappingToFeatureCollection(featureCollection, mapping) {
+  if (!featureCollection || featureCollection.type !== "FeatureCollection") {
+    return { collection: featureCollection, dropped: 0 };
+  }
+  const features = Array.isArray(featureCollection.features) ? featureCollection.features : [];
+  const mappedFeatures = [];
+  let dropped = 0;
+
+  const assignValue = (props, targetKey, sourceKey) => {
+    if (!sourceKey) {
+      delete props[targetKey];
+      return;
+    }
+    const raw = props[sourceKey];
+    if (raw === null || raw === undefined) {
+      delete props[targetKey];
+      return;
+    }
+    const str = String(raw).trim();
+    if (!str) {
+      delete props[targetKey];
+      return;
+    }
+    props[targetKey] = str;
+  };
+
+  for (const feature of features) {
+    const props = { ...(feature?.properties || {}) };
+    assignValue(props, "grower_name", mapping.grower);
+    assignValue(props, "farm_name", mapping.farm);
+    assignValue(props, "field_name", mapping.field);
+    if (mapping.crop) {
+      assignValue(props, "crop_type", mapping.crop);
+    }
+    const hasAll =
+      typeof props.grower_name === "string" && props.grower_name &&
+      typeof props.farm_name === "string" && props.farm_name &&
+      typeof props.field_name === "string" && props.field_name;
+    if (hasAll) {
+      mappedFeatures.push({
+        ...feature,
+        properties: props,
+      });
+    } else {
+      dropped += 1;
+    }
+  }
+
+  return {
+    collection: {
+      type: "FeatureCollection",
+      features: mappedFeatures,
+    },
+    dropped,
+  };
 }
 
 function readAsArrayBuffer(file) {
@@ -273,8 +576,27 @@ async function handleFile(file) {
   }
 
   // Normalize (flatten GeometryCollections)
-  const normalised = normalizeFeatureCollection(fc);
-  result.features = normalised?.features?.length || 0;
+  let normalised = normalizeFeatureCollection(fc);
+
+  const mapping = await requestAttributeMapping(normalised);
+  if (!mapping) {
+    result.cancelled = true;
+    return result;
+  }
+
+  const { collection: mappedCollection, dropped } = applyMappingToFeatureCollection(normalised, mapping);
+  normalised = mappedCollection;
+
+  if (!normalised.features.length) {
+    alert("No features contained the selected grower, farm, and field values. Please adjust your mapping and try again.");
+    return result;
+  }
+
+  if (dropped > 0 && typeof window.showDataToast === "function") {
+    window.showDataToast(`Skipped ${dropped} feature${dropped === 1 ? "" : "s"} missing required fields.`, 2400);
+  }
+
+  result.features = normalised.features.length;
 
   const { data: authData } = await supabase.auth.getUser();
   const currentUser = authData?.user ?? null;
@@ -355,6 +677,14 @@ async function processFiles(files) {
       console.error("Unexpected error handling upload:", err);
       res = { success: false, cloudStored: false };
     }
+    if (res?.cancelled) {
+      if (typeof window.showDataToast === "function") {
+        window.showDataToast("Upload cancelled.", 1500);
+      }
+      hideUploadProgress(0);
+      return;
+    }
+
     processed += 1;
     if (res?.cloudStored) stored += 1;
     if (res?.success) {

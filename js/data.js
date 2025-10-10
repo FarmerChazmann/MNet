@@ -185,19 +185,19 @@ export async function cacheCloudDatasets(userId, datasets = []) {
   await Promise.all(removals);
 
   if (!Array.isArray(datasets) || !datasets.length) return;
-  const writes = datasets
-    .filter((ds) => ds && ds.id && ds.geojson)
-    .map((ds) =>
-      set(cloudKey(userId, ds.id), {
-        id: ds.id,
-        name: ds.name || "",
-        geojson: ds.geojson,
-        updated_at: ds.updated_at || null,
-        featureCount: ds.featureCount ?? (ds.geojson?.features?.length ?? 0),
-        grower_id: ds.grower_id ?? null,
-        grower_name: ds.grower_name ?? ds.name || "",
-      })
-    );
+    const writes = datasets
+      .filter((ds) => ds && ds.id && ds.geojson)
+      .map((ds) =>
+        set(cloudKey(userId, ds.id), {
+          id: ds.id,
+          name: ds.name || "",
+          geojson: ds.geojson,
+          updated_at: ds.updated_at || null,
+          featureCount: ds.featureCount ?? (ds.geojson?.features?.length ?? 0),
+          grower_id: ds.grower_id ?? null,
+          grower_name: ds.grower_name ?? (ds.name || ""),
+        })
+      );
   await Promise.all(writes);
 }
 
