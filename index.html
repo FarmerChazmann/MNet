@@ -82,6 +82,71 @@
       margin-right: 0;
     }
 
+    .upload-progress {
+      position: absolute;
+      top: calc(var(--top-bar-height) + 6px);
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(580px, calc(100vw - 40px));
+      background: rgba(13, 15, 35, 0.92);
+      color: #f8fafc;
+      padding: 10px 16px 14px;
+      border-radius: 14px;
+      box-shadow: 0 12px 28px rgba(13, 15, 35, 0.25);
+      display: none;
+      z-index: 2950;
+      font: 600 13px/1.3 'Segoe UI', Arial, sans-serif;
+    }
+
+    .upload-progress.visible {
+      display: block;
+    }
+
+    .upload-progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .upload-progress-track {
+      margin-top: 10px;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.14);
+      overflow: hidden;
+    }
+
+    .upload-progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #2b7fff, #63a4ff);
+      border-radius: inherit;
+      transition: width 0.2s ease;
+    }
+
+    .data-toast {
+      position: absolute;
+      top: calc(var(--top-bar-height) + 12px);
+      right: var(--panel-right);
+      background: #1f3763;
+      color: #ffffff;
+      padding: 10px 16px;
+      border-radius: 14px;
+      box-shadow: 0 8px 24px rgba(13, 15, 35, 0.28);
+      font: 600 13px/1.35 'Segoe UI', Arial, sans-serif;
+      opacity: 0;
+      transform: translateY(-6px);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      z-index: 2960;
+      pointer-events: none;
+    }
+
+    .data-toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
     .anon-banner {
       color: #c5cbe8;
       font: 600 13px/1.4 'Segoe UI', Arial, sans-serif;
@@ -695,6 +760,18 @@
     </div>
   </div>
 
+  <div id="upload-progress" class="upload-progress">
+    <div class="upload-progress-header">
+      <span id="upload-progress-label">Preparing upload...</span>
+      <span id="upload-progress-count"></span>
+    </div>
+    <div class="upload-progress-track">
+      <div id="upload-progress-fill" class="upload-progress-fill"></div>
+    </div>
+  </div>
+
+  <div id="data-toast" class="data-toast"></div>
+
   <!-- Profile dropdown -->
   <div id="profile-menu" class="profile-menu" style="display:none;">
     <div id="profile-signed-out">
@@ -760,7 +837,7 @@
       </svg>
     </button>
     <label class="control-button upload" title="Upload Layer">
-      <input type="file" id="layerFileInput" accept=".zip,.kml,.geojson,.json" />
+      <input type="file" id="layerFileInput" accept=".zip,.kml,.kmz,.geojson,.json" multiple />
       <img src="Assets/upload.svg" alt="Upload" />
     </label>
     <button class="control-button" type="button" onclick="locateMe()" title="Locate me">
@@ -996,9 +1073,9 @@
 
   <!-- Create the map + helpers BEFORE loading base-stations.js -->
 
- <!-- Supabase SDK -->
+  <!-- Supabase SDK -->
   <script src="https://esm.sh/@supabase/supabase-js@2"></script>
-  
+
   <!-- Your modules -->
   <script type="module" src="js/auth.js"></script>
   <script type="module" src="js/data.js"></script>
@@ -1014,6 +1091,7 @@
 </body>
 
 </html>
+
 
 
 
