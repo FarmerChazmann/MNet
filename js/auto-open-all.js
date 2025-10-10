@@ -2,6 +2,23 @@
 import { supabase } from "./auth.js";
 import { cacheCloudDatasets, loadCachedCloudDatasets } from "./data.js";
 
+const toastEl = document.getElementById("data-toast");
+let toastTimer = null;
+
+function showDataToast(message, duration = 2000) {
+  if (!toastEl) return;
+  toastEl.textContent = String(message ?? "");
+  toastEl.classList.add("show");
+  if (toastTimer) clearTimeout(toastTimer);
+  const timeout = Math.max(1000, duration);
+  toastTimer = setTimeout(() => {
+    toastEl.classList.remove("show");
+    toastTimer = null;
+  }, timeout);
+}
+
+window.showDataToast = showDataToast;
+
 /** Add a FeatureCollection to Leaflet and return the created group layer */
 function addFC(fc, name) {
   if (!fc || !window.map || !window.L) return null;
@@ -122,13 +139,24 @@ export async function openAllDatasets(options = {}) {
       Array.isArray(row.geojson.features) &&
       row.geojson.features.length
   );
+  const datasetCount = validRows.length;
+  const totalFeatures = validRows.reduce(
+    (sum, row) => sum + (Array.isArray(row.geojson?.features) ? row.geojson.features.length : 0),
+    0
+  );
 
-  if (!validRows.length) {
+  if (!datasetCount) {
     if (fitToBounds && typeof window.resetMapView === "function") {
       window.resetMapView();
     }
     if (rows.length && !fetchError) {
       console.info("[openAllDatasets] datasets retrieved but contained no features.");
+    }
+    if (typeof showDataToast === "function") {
+      const message = fetchError
+        ? "Loaded growers from cache (none available)."
+        : "No growers found to draw.";
+      showDataToast(message, 1500);
     }
     return { groups: [], source, error: fetchError };
   }
@@ -157,6 +185,18 @@ export async function openAllDatasets(options = {}) {
     setTimeout(() => {
       try { window.map.invalidateSize(); } catch {}
     }, 0);
+  }
+
+  if (typeof showDataToast === "function") {
+    const datasetWord = datasetCount === 1 ? "dataset" : "datasets";
+    const growerWord = totalFeatures === 1 ? "grower" : "growers";
+    let message = `Loaded ${totalFeatures} ${growerWord} from ${datasetCount} ${datasetWord}`;
+    if (source === "cache") {
+      message += " (cached)";
+    } else if (source === "error") {
+      message += " (offline cache)";
+    }
+    showDataToast(message, 2000);
   }
 
   return { groups, source, error: fetchError };
