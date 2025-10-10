@@ -2,11 +2,185 @@
 // ES module that parses uploads (SHP .zip, KML/KMZ, GeoJSON), normalizes to GeoJSON,
 // renders on Leaflet, dispatches "mnet:dataset", and ingests to Supabase if logged in.
 
+import { supabase } from "./auth.js";
 import { ensureDataset, ensureLayer, ingestFeatureCollection } from "./db-ingest.js";
 
 // ====== Utilities ======
 
 const ACCEPTED = /\.(zip|kml|kmz|geojson|json)$/i;
+
+const MATCH_PROPERTY_GROUPS = [
+  ["grower", "Grower", "grower_name", "Grower Name", "growerName", "GrowerName"],
+  ["farm", "Farm", "farm_name", "Farm Name", "farmName", "FarmName", "property", "Property"],
+  ["field", "Field", "field_name", "Field Name", "fieldName", "FieldName", "block", "Block", "paddock", "Paddock"],
+];
+const FALLBACK_PROPERTIES = ["name", "Name", "title", "Title", "id", "ID", "identifier", "Identifier"];
+const MIN_SIGNATURE_PARTS = 2;
+const MIN_MATCH_OVERLAP = 3;
+const MIN_MATCH_SCORE = 0.58;
+
+let datasetFingerprintCache = null;
+
+const normaliseName = (value) =>
+  typeof value === "string" ? value.replace(/[^a-z0-9]/gi, "").toLowerCase() : "";
+
+const normalisePropValue = (value) => {
+  if (value === null || value === undefined) return "";
+  const str = String(value).trim();
+  return str ? str.toLowerCase() : "";
+};
+
+function extractFirstMatch(props, candidates) {
+  for (const key of candidates) {
+    if (Object.prototype.hasOwnProperty.call(props, key)) {
+      const normalised = normalisePropValue(props[key]);
+      if (normalised) return normalised;
+    }
+  }
+  return "";
+}
+
+function buildFeatureKey(feature) {
+  if (!feature || typeof feature !== "object") return null;
+  const props = feature.properties || {};
+  const parts = [];
+  MATCH_PROPERTY_GROUPS.forEach((group, index) => {
+    const value = extractFirstMatch(props, group);
+    if (value) parts.push(`${index}:${value}`);
+  });
+
+  if (parts.length >= MIN_SIGNATURE_PARTS) {
+    return parts.join("|");
+  }
+
+  if (parts.length && FALLBACK_PROPERTIES.length) {
+    const fallback = extractFirstMatch(props, FALLBACK_PROPERTIES);
+    if (fallback) {
+      return `${parts.join("|")}|fb:${fallback}`;
+    }
+  } else {
+    const fallbackOnly = extractFirstMatch(props, FALLBACK_PROPERTIES);
+    if (fallbackOnly) {
+      return `fb:${fallbackOnly}`;
+    }
+  }
+
+  return null;
+}
+
+function buildSignature(featureCollection) {
+  const signature = new Set();
+  if (!featureCollection || featureCollection.type !== "FeatureCollection") return signature;
+  const features = Array.isArray(featureCollection.features) ? featureCollection.features : [];
+  for (const feature of features) {
+    const key = buildFeatureKey(feature);
+    if (key) signature.add(key);
+  }
+  return signature;
+}
+
+function parseFeatureCollection(value) {
+  if (!value) return null;
+  if (value.type === "FeatureCollection") return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed?.type === "FeatureCollection" ? parsed : null;
+    } catch (err) {
+      console.warn("[upload] Failed to parse stored geojson for matching:", err);
+      return null;
+    }
+  }
+  return null;
+}
+
+async function loadDatasetFingerprintCache() {
+  if (datasetFingerprintCache) return datasetFingerprintCache;
+
+  const { data: userData } = await supabase.auth.getUser();
+  if (!userData?.user) {
+    datasetFingerprintCache = [];
+    return datasetFingerprintCache;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("datasets")
+      .select("id,name,geojson,source_filename,updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    datasetFingerprintCache = (data || []).map((row) => {
+      const fc = parseFeatureCollection(row.geojson);
+      return {
+        id: row.id,
+        name: row.name || row.source_filename || "",
+        signature: buildSignature(fc),
+        featureCount: fc?.features?.length ?? 0,
+      };
+    });
+  } catch (err) {
+    console.warn("[upload] Failed to load dataset fingerprints:", err);
+    datasetFingerprintCache = [];
+  }
+
+  return datasetFingerprintCache;
+}
+
+function invalidateDatasetFingerprintCache() {
+  datasetFingerprintCache = null;
+}
+
+const countIntersection = (aSet, bSet) => {
+  if (!aSet || !bSet || !aSet.size || !bSet.size) return 0;
+  let count = 0;
+  for (const value of aSet) {
+    if (bSet.has(value)) count++;
+  }
+  return count;
+};
+
+async function findMatchingDataset(featureCollection, fallbackName) {
+  const signature = buildSignature(featureCollection);
+  if (!signature.size) return null;
+
+  const datasets = await loadDatasetFingerprintCache();
+  if (!datasets.length) return null;
+
+  const fallbackNormalised = normaliseName(fallbackName);
+  if (fallbackNormalised) {
+    const byName = datasets.find((d) => normaliseName(d.name) === fallbackNormalised);
+    if (byName) {
+      return { ...byName, matchReason: "name" };
+    }
+  }
+
+  let best = null;
+  let bestScore = 0;
+
+  for (const dataset of datasets) {
+    const datasetSignature = dataset.signature;
+    if (!datasetSignature || !datasetSignature.size) continue;
+    const overlap = countIntersection(signature, datasetSignature);
+    if (!overlap) continue;
+    const precision = overlap / signature.size;
+    const recall = overlap / datasetSignature.size;
+    const score = (precision + recall) / 2;
+    if (score > bestScore && (overlap >= MIN_MATCH_OVERLAP || score >= MIN_MATCH_SCORE)) {
+      best = {
+        ...dataset,
+        matchReason: "attributes",
+        precision,
+        recall,
+        overlap,
+        score,
+      };
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
 
 const progressRefs = {
   container: null,
@@ -223,7 +397,10 @@ async function handleFile(file) {
     success: false,
     cloudStored: false,
     features: 0,
-    name: stem,
+    datasetName: stem,
+    updatedExisting: false,
+    matchReason: null,
+    datasetId: null,
   };
 
   try {
@@ -251,6 +428,24 @@ async function handleFile(file) {
   const normalised = normalizeFeatureCollection(fc);
   result.features = normalised?.features?.length || 0;
 
+  let matchedDataset = null;
+  try {
+    matchedDataset = await findMatchingDataset(normalised, stem);
+    if (matchedDataset?.name) {
+      result.datasetName = matchedDataset.name;
+      result.updatedExisting = true;
+      result.matchReason = matchedDataset.matchReason || "attributes";
+      result.datasetId = matchedDataset.id ?? null;
+      console.info(
+        `[upload] Matched dataset "${matchedDataset.name}" using ${matchedDataset.matchReason || "attributes"}`
+      );
+    }
+  } catch (matchErr) {
+    console.warn("[upload] dataset matching skipped:", matchErr);
+  }
+
+  const datasetNameForSave = result.datasetName || stem;
+
   // 1) Draw on Leaflet
   try {
     renderGeoJSONOnMap(normalised);
@@ -263,7 +458,13 @@ async function handleFile(file) {
   // 2) Let the rest of the app know (keeps anonymous local save behavior in data-bridge.js)
   try {
     window.dispatchEvent(new CustomEvent("mnet:dataset", {
-      detail: { name: stem, geojson: normalised, sourceFilename: file.name }
+      detail: {
+        name: datasetNameForSave,
+        geojson: normalised,
+        sourceFilename: file.name,
+        matchedDatasetId: matchedDataset?.id ?? null,
+        matchReason: matchedDataset?.matchReason ?? null,
+      }
     }));
   } catch (e) {
     console.warn("mnet:dataset dispatch failed:", e);
@@ -271,12 +472,23 @@ async function handleFile(file) {
 
   // 3) Persist to DB if logged in (dataset -> layer -> RPC ingest)
   try {
-    const ds = await ensureDataset(stem, file.name);
+    const ds = await ensureDataset(datasetNameForSave, file.name);
     if (ds) {
+      result.datasetId = ds.id ?? result.datasetId;
+      if (!result.datasetName) {
+        result.datasetName = ds.name || datasetNameForSave;
+      }
+      if (!matchedDataset || (matchedDataset.id && matchedDataset.id === ds.id)) {
+        result.updatedExisting = Boolean(matchedDataset);
+      } else {
+        result.updatedExisting = false;
+      }
+
       const ly = await ensureLayer(ds.id, "uploaded");
-      const inserted = await ingestFeatureCollection(ds.id, ly?.id ?? null, normalised, { chunkSize: 1000 });
+      const inserted = await ingestFeatureCollection(ds.id, ly?.id ?? null, normalised);
       console.log(`[DB] Inserted ${inserted} features into dataset "${ds.name}"`);
       result.cloudStored = true;
+      invalidateDatasetFingerprintCache();
     }
   } catch (e) {
     // Do not block UX; map already shows data and local save happened
@@ -295,6 +507,8 @@ async function processFiles(files) {
   let processed = 0;
   let stored = 0;
   let successful = 0;
+  const updatedNames = new Set();
+  const createdNames = new Set();
 
   for (const file of files) {
     updateUploadProgress(processed, total, stored);
@@ -307,7 +521,15 @@ async function processFiles(files) {
     }
     processed += 1;
     if (res?.cloudStored) stored += 1;
-    if (res?.success) successful += 1;
+    if (res?.success) {
+      successful += 1;
+      const datasetName = res?.datasetName || filenameStem(file.name);
+      if (res?.updatedExisting) {
+        if (datasetName) updatedNames.add(datasetName);
+      } else if (datasetName) {
+        createdNames.add(datasetName);
+      }
+    }
     updateUploadProgress(processed, total, stored);
   }
 
@@ -318,6 +540,12 @@ async function processFiles(files) {
     const processedLabel = total === 1 ? "file" : "files";
     parts.push(`Processed ${successful}/${total} ${processedLabel}`);
     parts.push(`Cloud stored ${stored}/${total}`);
+    if (updatedNames.size) {
+      parts.push(`Updated ${updatedNames.size} dataset${updatedNames.size === 1 ? "" : "s"}`);
+    }
+    if (createdNames.size) {
+      parts.push(`Created ${createdNames.size} new dataset${createdNames.size === 1 ? "" : "s"}`);
+    }
     window.showDataToast(parts.join(" | "), 2200);
   }
 }
@@ -346,18 +574,28 @@ export async function handleGeoJSONUploadObject(geojson, name = "dataset") {
   const fc = toFeatureCollection(geojson);
   if (!fc) throw new Error("Invalid GeoJSON");
   const normalised = normalizeFeatureCollection(fc);
+  let datasetName = name;
+  try {
+    const matched = await findMatchingDataset(normalised, name);
+    if (matched?.name) {
+      datasetName = matched.name;
+    }
+  } catch (err) {
+    console.warn("[upload] dataset matching skipped for programmatic ingest:", err);
+  }
   renderGeoJSONOnMap(normalised);
   try {
     window.dispatchEvent(new CustomEvent("mnet:dataset", {
-      detail: { name, geojson: normalised, sourceFilename: name + ".geojson" }
+      detail: { name: datasetName, geojson: normalised, sourceFilename: name + ".geojson" }
     }));
   } catch {}
   try {
-    const ds = await ensureDataset(name, name + ".geojson");
+    const ds = await ensureDataset(datasetName, name + ".geojson");
     if (ds) {
       const ly = await ensureLayer(ds.id, "uploaded");
-      const inserted = await ingestFeatureCollection(ds.id, ly?.id ?? null, normalised, { chunkSize: 1000 });
+      const inserted = await ingestFeatureCollection(ds.id, ly?.id ?? null, normalised);
       console.log(`[DB] Inserted ${inserted} features into dataset "${ds.name}"`);
+      invalidateDatasetFingerprintCache();
     }
   } catch (e) {
     console.error("DB ingest failed:", e);
