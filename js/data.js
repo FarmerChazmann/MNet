@@ -237,7 +237,7 @@ async function fetchFieldRows(_userId) {
       field_name,
       area_ha,
       perimeter_m,
-      field_boundary,
+      field_boundary:field_boundary::text,
       properties,
       updated_at,
       farms (
