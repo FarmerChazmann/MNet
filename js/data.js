@@ -239,7 +239,7 @@ async function fetchFieldRows(_userId) {
       field_group,
       area_ha,
       perimeter_m,
-      field_boundary:ST_AsGeoJSON(field_boundary)::json,
+      field_boundary:field_boundary_geojson,
       properties,
       updated_at,
       farms (
