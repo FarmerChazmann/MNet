@@ -74,6 +74,7 @@ export function rowsToDatasetCollections(rows = []) {
     const baseProps = {
       field_id: row.field_id,
       field_name: row.field_name,
+      field_group: row.field_group ?? null,
       farm_id: farm?.farm_id ?? null,
       farm_name: farm?.farm_name ?? null,
       grower_id: grower?.grower_id ?? null,
@@ -185,19 +186,19 @@ export async function cacheCloudDatasets(userId, datasets = []) {
   await Promise.all(removals);
 
   if (!Array.isArray(datasets) || !datasets.length) return;
-    const writes = datasets
-      .filter((ds) => ds && ds.id && ds.geojson)
-      .map((ds) =>
-        set(cloudKey(userId, ds.id), {
-          id: ds.id,
-          name: ds.name || "",
-          geojson: ds.geojson,
-          updated_at: ds.updated_at || null,
-          featureCount: ds.featureCount ?? (ds.geojson?.features?.length ?? 0),
-          grower_id: ds.grower_id ?? null,
-          grower_name: ds.grower_name ?? (ds.name || ""),
-        })
-      );
+  const writes = datasets
+    .filter((ds) => ds && ds.id && ds.geojson)
+    .map((ds) =>
+      set(cloudKey(userId, ds.id), {
+        id: ds.id,
+        name: ds.name || "",
+        geojson: ds.geojson,
+        updated_at: ds.updated_at || null,
+        featureCount: ds.featureCount ?? (ds.geojson?.features?.length ?? 0),
+        grower_id: ds.grower_id ?? null,
+        grower_name: ds.grower_name ?? (ds.name || ""),
+      })
+    );
   await Promise.all(writes);
 }
 
@@ -235,6 +236,7 @@ async function fetchFieldRows(_userId) {
     .select(`
       field_id,
       field_name,
+      field_group,
       area_ha,
       perimeter_m,
       field_boundary:field_boundary::text,
