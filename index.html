@@ -143,10 +143,34 @@
       font-size: 13px;
     }
 
+    .attribute-mapper__field select:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     .attribute-mapper__samples {
       margin-top: 6px;
       color: rgba(245, 247, 255, 0.55);
       font-size: 12px;
+    }
+
+    .attribute-mapper__inline {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .attribute-mapper__force-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: rgba(245, 247, 255, 0.65);
+      white-space: nowrap;
+    }
+
+    .attribute-mapper__force-label input {
+      accent-color: #2b60f1;
     }
 
     .attribute-mapper__remember {
@@ -186,6 +210,44 @@
     .attribute-mapper__button.primary:disabled {
       opacity: 0.5;
       cursor: not-allowed;
+    }
+
+    .toggle-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      background: rgba(15, 19, 39, 0.72);
+      color: #f5f7ff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.18s ease, border 0.18s ease;
+    }
+
+    .toggle-pill:hover {
+      border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    .toggle-pill.active {
+      background: #2b60f1;
+      border-color: rgba(43, 96, 241, 0.9);
+    }
+
+    .toggle-pill .pill-indicator {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.22);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
     }
 
     .upload-progress {
@@ -858,12 +920,16 @@
         You're anonymous - uploads vanish when you close the browser.
       </div>
     </div>
-    <div class="top-bar-right">
-      <div id="topCenter" class="search-anchor"></div>
-      <button id="profile-button" class="profile-avatar-btn" type="button" title="Account">
-        <span id="profile-avatar-text" class="profile-avatar-text">??</span>
-      </button>
-    </div>
+  <div class="top-bar-right">
+    <div id="topCenter" class="search-anchor"></div>
+    <button id="mnet-toggle" class="toggle-pill" type="button" title="Toggle MNet highlighting">
+      <span class="pill-label">MNet</span>
+      <span class="pill-indicator">ON</span>
+    </button>
+    <button id="profile-button" class="profile-avatar-btn" type="button" title="Account">
+      <span id="profile-avatar-text" class="profile-avatar-text">??</span>
+    </button>
+  </div>
   </div>
 
   <div id="attribute-mapper" class="attribute-mapper">
@@ -887,6 +953,17 @@
           <label for="mapper-field">Field name</label>
           <select id="mapper-field" required></select>
           <div class="attribute-mapper__samples" id="mapper-field-sample"></div>
+        </div>
+        <div class="attribute-mapper__field">
+          <label for="mapper-mnet">MNet (yes/no)</label>
+          <div class="attribute-mapper__inline">
+            <select id="mapper-mnet"></select>
+            <label class="attribute-mapper__force-label">
+              <input type="checkbox" id="mapper-mnet-force" />
+              Set all to Yes
+            </label>
+          </div>
+          <div class="attribute-mapper__samples" id="mapper-mnet-sample"></div>
         </div>
         <div class="attribute-mapper__field">
           <label for="mapper-crop">Crop type (optional)</label>
