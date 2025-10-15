@@ -4,7 +4,7 @@ import { streamGrowerDatasets } from "./data.js";
 
 const toastEl = document.getElementById("data-toast");
 let toastTimer = null;
-const MNET_DEFAULT_COLOR = "#1aa560";
+const MNET_DEFAULT_COLOR = "#188038";
 const MNET_ACTIVE_COLOR = "#2b60f1";
 
 if (typeof window !== "undefined" && typeof window._mnetFilterEnabled === "undefined") {
@@ -104,9 +104,7 @@ const mnetToggleButton = document.getElementById("mnet-toggle");
 function updateMNetToggleUI() {
   if (!mnetToggleButton) return;
   const enabled = Boolean(window._mnetFilterEnabled);
-  mnetToggleButton.classList.toggle("active", enabled);
-  const indicator = mnetToggleButton.querySelector(".pill-indicator");
-  if (indicator) indicator.textContent = enabled ? "YES" : "ALL";
+  mnetToggleButton.classList.toggle("active", !enabled);
 }
 
 if (mnetToggleButton) {
