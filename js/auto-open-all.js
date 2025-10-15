@@ -99,17 +99,19 @@ function restyleAllLayers() {
 
 window.restyleMNetLayers = restyleAllLayers;
 
-const mnetToggleButton = document.getElementById("mnet-toggle");
+const mnetToggle = document.getElementById("mnet-toggle");
+const mnetToggleInput = document.getElementById("mnet-toggle-input");
 
 function updateMNetToggleUI() {
-  if (!mnetToggleButton) return;
+  if (!mnetToggle || !mnetToggleInput) return;
   const enabled = Boolean(window._mnetFilterEnabled);
-  mnetToggleButton.classList.toggle("active", !enabled);
+  mnetToggleInput.checked = enabled;
+  mnetToggle.classList.toggle("mode-on", enabled);
 }
 
-if (mnetToggleButton) {
-  mnetToggleButton.addEventListener("click", () => {
-    window._mnetFilterEnabled = !window._mnetFilterEnabled;
+if (mnetToggle && mnetToggleInput) {
+  mnetToggleInput.addEventListener("change", () => {
+    window._mnetFilterEnabled = Boolean(mnetToggleInput.checked);
     updateMNetToggleUI();
     restyleAllLayers();
     if (typeof showDataToast === "function") {
@@ -155,13 +157,13 @@ export async function openAllDatasets(options = {}) {
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    if (mnetToggleButton) mnetToggleButton.style.display = "none";
+    if (mnetToggle) mnetToggle.style.display = "none";
     console.info("[openAllDatasets] no user session; skipping.");
     return { groups: [], source: "anonymous" };
   }
 
-  if (mnetToggleButton) {
-    mnetToggleButton.style.display = "inline-flex";
+  if (mnetToggle) {
+    mnetToggle.style.display = "inline-flex";
     updateMNetToggleUI();
   }
 
