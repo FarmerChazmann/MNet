@@ -231,9 +231,7 @@ export async function clearCloudCache(userId) {
 }
 
 async function fetchFieldRows(_userId) {
-  const query = supabase
-    .from("fields")
-    .select(`
+  const selectColumns = `
       field_id,
       field_name,
       field_group,
@@ -250,12 +248,28 @@ async function fetchFieldRows(_userId) {
           grower_name
         )
       )
-    `)
-    .order("updated_at", { ascending: false })
-    .limit(500);
-  const { data, error } = await query;
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+    `;
+
+  const rows = [];
+  const batchSize = 250;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("fields")
+      .select(selectColumns)
+      .order("updated_at", { ascending: false })
+      .range(from, from + batchSize - 1);
+
+    if (error) throw error;
+    if (!Array.isArray(data) || !data.length) break;
+
+    rows.push(...data);
+    if (data.length < batchSize) break;
+    from += batchSize;
+  }
+
+  return rows;
 }
 
 export async function fetchCloudDatasets(userId) {
