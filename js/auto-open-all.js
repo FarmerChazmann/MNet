@@ -4,6 +4,12 @@ import { streamGrowerDatasets } from "./data.js";
 
 const toastEl = document.getElementById("data-toast");
 let toastTimer = null;
+const MNET_ACTIVE_COLOR = "#1aa560";
+const MNET_DEFAULT_COLOR = "#1f3763";
+
+if (typeof window !== "undefined" && typeof window._mnetFilterEnabled === "undefined") {
+  window._mnetFilterEnabled = true;
+}
 
 function showDataToast(message, duration = 2000) {
   if (!toastEl) return;
@@ -20,12 +26,33 @@ function showDataToast(message, duration = 2000) {
 window.showDataToast = showDataToast;
 
 /** Add a FeatureCollection to Leaflet and return the created group layer */
+function styleForFeature(feature) {
+  const highlight = Boolean(window._mnetFilterEnabled);
+  const isMNet = Boolean(feature?.properties?.mnet);
+  if (highlight) {
+    return {
+      color: isMNet ? MNET_ACTIVE_COLOR : MNET_DEFAULT_COLOR,
+      weight: 2.2,
+      opacity: isMNet ? 0.95 : 0.85,
+      fillOpacity: isMNet ? 0.28 : 0.14,
+    };
+  }
+  return {
+    color: MNET_DEFAULT_COLOR,
+    weight: 2,
+    opacity: 0.85,
+    fillOpacity: 0.15,
+  };
+}
+
 function addFC(fc, name) {
   if (!fc || !window.map || !window.L) return null;
 
+  const styleFn = (feature) => styleForFeature(feature);
   const group = L.geoJSON(fc, {
-    style: { color: "#1f3763", weight: 2, opacity: 0.85, fillOpacity: 0.15 }
+    style: styleFn,
   });
+  group._mnetStyleFn = styleFn;
 
   // light label so you know which dataset is which
   try {
@@ -43,6 +70,51 @@ function clearAutoOpened() {
   }
   window._openedDatasetLayers = [];
 }
+
+function restyleAllLayers() {
+  if (!Array.isArray(window._openedDatasetLayers)) return;
+  window._openedDatasetLayers.forEach((layer) => {
+    try {
+      if (layer && typeof layer.setStyle === "function") {
+        const styleFn = layer._mnetStyleFn || ((feature) => styleForFeature(feature));
+        layer.setStyle(styleFn);
+      }
+    } catch (err) {
+      console.warn("[MNet] failed to restyle layer", err);
+    }
+  });
+}
+
+window.restyleMNetLayers = restyleAllLayers;
+
+const mnetToggleButton = document.getElementById("mnet-toggle");
+
+function updateMNetToggleUI() {
+  if (!mnetToggleButton) return;
+  const enabled = Boolean(window._mnetFilterEnabled);
+  mnetToggleButton.classList.toggle("active", enabled);
+  const indicator = mnetToggleButton.querySelector(".pill-indicator");
+  if (indicator) indicator.textContent = enabled ? "ON" : "ALL";
+}
+
+if (mnetToggleButton) {
+  mnetToggleButton.addEventListener("click", () => {
+    window._mnetFilterEnabled = !window._mnetFilterEnabled;
+    updateMNetToggleUI();
+    restyleAllLayers();
+    if (typeof showDataToast === "function") {
+      const state = window._mnetFilterEnabled ? "highlighting" : "showing";
+      showDataToast(`MNet ${state} all growers`, 1600);
+    }
+  });
+  updateMNetToggleUI();
+}
+
+window.setMNetFilterEnabled = (value) => {
+  window._mnetFilterEnabled = Boolean(value);
+  updateMNetToggleUI();
+  restyleAllLayers();
+};
 
 function normalizeRows(list) {
   return (list || []).map((row) => {
@@ -114,7 +186,8 @@ export async function openAllDatasets(options = {}) {
       totalGrowers = total;
 
       if (typeof showDataToast === "function") {
-        const prefix = `Loaded ${validRows.length ? fieldCount : 0} field${fieldCount === 1 ? "" : "s"} for ${grower.grower_name}`;
+        const mnetLabel = grower?.mnet ? "Yes" : "No";
+        const prefix = `Loaded ${validRows.length ? fieldCount : 0} field${fieldCount === 1 ? "" : "s"} for ${grower.grower_name} (MNet: ${mnetLabel})`;
         const suffix = total > 0 ? ` (${growersLoaded}/${total} growers)` : "";
         showDataToast(prefix + suffix, 1800);
       }

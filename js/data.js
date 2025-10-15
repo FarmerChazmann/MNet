@@ -69,6 +69,7 @@ export function rowsToDatasetCollections(rows = []) {
       updated_at: row.updated_at ?? null,
       grower_id: grower?.grower_id ?? null,
       grower_name: grower?.grower_name ?? datasetName,
+      grower_mnet: Boolean(grower?.mnet ?? false),
     };
 
     const baseProps = {
@@ -84,6 +85,7 @@ export function rowsToDatasetCollections(rows = []) {
     };
 
     const properties = { ...toPlainObject(row.properties), ...baseProps };
+    properties.mnet = dataset.grower_mnet;
 
     dataset.geojson.features.push({
       type: "Feature",
@@ -247,7 +249,8 @@ async function fetchFieldRows(options = {}) {
         farm_name,
         growers (
           grower_id,
-          grower_name
+          grower_name,
+          mnet
         )
       )
     `;
@@ -288,7 +291,7 @@ export async function fetchCloudDatasets(userId) {
 export async function streamGrowerDatasets(userId, onGrower) {
   const { data: growers, error } = await supabase
     .from("growers")
-    .select("grower_id,grower_name")
+    .select("grower_id,grower_name,mnet")
     .order("grower_name", { ascending: true });
 
   if (error) throw error;

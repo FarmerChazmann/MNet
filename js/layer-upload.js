@@ -26,17 +26,20 @@ const mapperRefs = {
   remember: null,
   cancel: null,
   apply: null,
+  forceMnet: null,
   selects: {
     grower: null,
     farm: null,
     field: null,
     crop: null,
+    mnet: null,
   },
   samples: {
     grower: null,
     farm: null,
     field: null,
     crop: null,
+    mnet: null,
   },
 };
 
@@ -94,14 +97,17 @@ function ensureMapperRefs() {
     mapperRefs.remember = document.getElementById("mapper-remember");
     mapperRefs.cancel = document.getElementById("mapper-cancel");
     mapperRefs.apply = document.getElementById("mapper-apply");
+    mapperRefs.forceMnet = document.getElementById("mapper-mnet-force");
     mapperRefs.selects.grower = document.getElementById("mapper-grower");
     mapperRefs.selects.farm = document.getElementById("mapper-farm");
     mapperRefs.selects.field = document.getElementById("mapper-field");
     mapperRefs.selects.crop = document.getElementById("mapper-crop");
+    mapperRefs.selects.mnet = document.getElementById("mapper-mnet");
     mapperRefs.samples.grower = document.getElementById("mapper-grower-sample");
     mapperRefs.samples.farm = document.getElementById("mapper-farm-sample");
     mapperRefs.samples.field = document.getElementById("mapper-field-sample");
     mapperRefs.samples.crop = document.getElementById("mapper-crop-sample");
+    mapperRefs.samples.mnet = document.getElementById("mapper-mnet-sample");
   }
   return mapperRefs.container ? mapperRefs : null;
 }
@@ -120,12 +126,12 @@ function loadStoredAttributeMapping() {
   return null;
 }
 
-function storeAttributeMapping(mapping, remember) {
+function storeAttributeMapping(mapping, remember, forceMnetYes) {
   try {
     if (mapping && remember) {
       localStorage.setItem(
         ATTRIBUTE_STORAGE_KEY,
-        JSON.stringify({ remember: true, mapping })
+        JSON.stringify({ remember: true, mapping, forceMnetYes: Boolean(forceMnetYes) })
       );
     } else {
       localStorage.removeItem(ATTRIBUTE_STORAGE_KEY);
@@ -135,13 +141,17 @@ function storeAttributeMapping(mapping, remember) {
   }
 }
 
-function mappingIsValid(mapping, stats) {
+function mappingIsValid(mapping, stats, forceMnetYes = false) {
   if (!mapping) return false;
   const required = ["grower", "farm", "field"];
-  return required.every((key) => {
+  const baseValid = required.every((key) => {
     const source = mapping[key];
     return typeof source === "string" && source && stats.samples[source];
   });
+  if (!baseValid) return false;
+  if (forceMnetYes) return true;
+  const source = mapping.mnet;
+  return typeof source === "string" && source && stats.samples[source];
 }
 
 function collectPropertyStats(featureCollection, sampleLimit = 200) {
@@ -193,23 +203,37 @@ function populateSelectWithKeys(select, keys, selectedValue) {
 }
 
 function updateMapperSamples(refs, stats) {
-  const { selects, samples } = refs;
+  const { selects, samples, forceMnet } = refs;
+  const forceYes = Boolean(forceMnet?.checked);
   Object.entries(selects).forEach(([name, select]) => {
     const sampleEl = samples[name];
-    if (!sampleEl) return;
+    if (!sampleEl || !select) return;
+    if (name === "mnet") {
+      if (forceYes) {
+        select.disabled = true;
+        sampleEl.textContent = "All features will be tagged as Yes.";
+      } else {
+        select.disabled = false;
+        const key = select.value;
+        sampleEl.textContent = key ? describeSamples(stats.samples[key]) : "Select a property";
+      }
+      return;
+    }
+    select.disabled = false;
     const key = select.value;
     sampleEl.textContent = key ? describeSamples(stats.samples[key]) : "Select a property";
   });
 }
 
 function updateMapperApplyState(refs) {
-  const { selects, apply } = refs;
+  const { selects, apply, forceMnet } = refs;
   if (!apply) return;
   const requiredSelected =
     selects.grower?.value &&
     selects.farm?.value &&
     selects.field?.value;
-  apply.disabled = !requiredSelected;
+  const mnetSelected = forceMnet?.checked || Boolean(selects.mnet?.value);
+  apply.disabled = !(requiredSelected && mnetSelected);
 }
 
 function showAttributeMapperDialog(stats, defaults = {}) {
@@ -224,13 +248,21 @@ function showAttributeMapperDialog(stats, defaults = {}) {
   populateSelectWithKeys(refs.selects.grower, keys, defaults.mapping?.grower || "");
   populateSelectWithKeys(refs.selects.farm, keys, defaults.mapping?.farm || "");
   populateSelectWithKeys(refs.selects.field, keys, defaults.mapping?.field || "");
+  populateSelectWithKeys(refs.selects.mnet, keys, defaults.mapping?.mnet || "");
   populateSelectWithKeys(refs.selects.crop, keys, defaults.mapping?.crop || "");
 
   if (refs.remember) {
     refs.remember.checked = Boolean(defaults.remember);
   }
+  if (refs.forceMnet) {
+    refs.forceMnet.checked = Boolean(defaults.forceMnetYes);
+  }
 
   const changeHandler = () => {
+    updateMapperSamples(refs, stats);
+    updateMapperApplyState(refs);
+  };
+  const toggleHandler = () => {
     updateMapperSamples(refs, stats);
     updateMapperApplyState(refs);
   };
@@ -238,6 +270,7 @@ function showAttributeMapperDialog(stats, defaults = {}) {
   Object.values(refs.selects).forEach((select) => {
     if (select) select.addEventListener("change", changeHandler);
   });
+  if (refs.forceMnet) refs.forceMnet.addEventListener("change", toggleHandler);
 
   updateMapperSamples(refs, stats);
   updateMapperApplyState(refs);
@@ -252,6 +285,7 @@ function showAttributeMapperDialog(stats, defaults = {}) {
       });
       refs.form?.removeEventListener("submit", submitHandler);
       refs.cancel?.removeEventListener("click", cancelHandler);
+      refs.forceMnet?.removeEventListener("change", toggleHandler);
     };
 
     const cancelHandler = () => {
@@ -265,12 +299,14 @@ function showAttributeMapperDialog(stats, defaults = {}) {
         grower: refs.selects.grower?.value || "",
         farm: refs.selects.farm?.value || "",
         field: refs.selects.field?.value || "",
+        mnet: refs.selects.mnet?.value || "",
         crop: refs.selects.crop?.value || "",
       };
       cleanup();
       resolve({
         mapping,
         remember: Boolean(refs.remember?.checked),
+        mnetForceYes: Boolean(refs.forceMnet?.checked),
       });
     };
 
@@ -284,33 +320,38 @@ async function requestAttributeMapping(featureCollection) {
   const stored = loadStoredAttributeMapping();
 
   let defaultMapping = null;
-  if (mappingIsValid(sessionAttributeMapping, stats)) {
-    defaultMapping = sessionAttributeMapping;
-  } else if (stored && mappingIsValid(stored.mapping, stats)) {
+  let defaultForce = false;
+  if (sessionAttributeMapping && mappingIsValid(sessionAttributeMapping.mapping, stats, sessionAttributeMapping.forceMnetYes)) {
+    defaultMapping = sessionAttributeMapping.mapping;
+    defaultForce = Boolean(sessionAttributeMapping.forceMnetYes);
+  } else if (stored && mappingIsValid(stored.mapping, stats, stored.forceMnetYes)) {
     defaultMapping = stored.mapping;
+    defaultForce = Boolean(stored.forceMnetYes);
   }
 
   const result = await showAttributeMapperDialog(stats, {
     mapping: defaultMapping,
     remember: stored?.remember ?? false,
+    forceMnetYes: defaultForce,
   });
 
-  if (!result || !mappingIsValid(result.mapping, stats)) {
+  if (!result || !mappingIsValid(result.mapping, stats, result.mnetForceYes)) {
     return null;
   }
 
-  sessionAttributeMapping = result.mapping;
-  storeAttributeMapping(result.mapping, result.remember);
-  return result.mapping;
+  sessionAttributeMapping = { mapping: result.mapping, forceMnetYes: result.mnetForceYes };
+  storeAttributeMapping(result.mapping, result.remember, result.mnetForceYes);
+  return { mapping: result.mapping, mnetForceYes: result.mnetForceYes };
 }
 
-function applyMappingToFeatureCollection(featureCollection, mapping) {
+function applyMappingToFeatureCollection(featureCollection, mapping, options = {}) {
   if (!featureCollection || featureCollection.type !== "FeatureCollection") {
     return { collection: featureCollection, dropped: 0 };
   }
   const features = Array.isArray(featureCollection.features) ? featureCollection.features : [];
   const mappedFeatures = [];
   let dropped = 0;
+  const forceMnetYes = Boolean(options.forceMnetYes);
 
   const assignValue = (props, targetKey, sourceKey) => {
     if (!sourceKey) {
@@ -337,6 +378,21 @@ function applyMappingToFeatureCollection(featureCollection, mapping) {
     assignValue(props, "field_name", mapping.field);
     if (mapping.crop) {
       assignValue(props, "crop_type", mapping.crop);
+    }
+    if (forceMnetYes) {
+      props.mnet = "yes";
+    } else if (mapping.mnet) {
+      assignValue(props, "mnet", mapping.mnet);
+    } else {
+      delete props.mnet;
+    }
+    if (typeof props.mnet === "string") {
+      const normalised = props.mnet.trim().toLowerCase();
+      if (normalised) {
+        props.mnet = normalised;
+      } else {
+        delete props.mnet;
+      }
     }
     const hasAll =
       typeof props.grower_name === "string" && props.grower_name &&
@@ -571,13 +627,14 @@ async function handleFile(file) {
   // Normalize (flatten GeometryCollections)
   let normalised = normalizeFeatureCollection(fc);
 
-  const mapping = await requestAttributeMapping(normalised);
-  if (!mapping) {
+  const mappingState = await requestAttributeMapping(normalised);
+  if (!mappingState) {
     result.cancelled = true;
     return result;
   }
+  const { mapping, mnetForceYes } = mappingState;
 
-  const { collection: mappedCollection, dropped } = applyMappingToFeatureCollection(normalised, mapping);
+  const { collection: mappedCollection, dropped } = applyMappingToFeatureCollection(normalised, mapping, { forceMnetYes: mnetForceYes });
   normalised = mappedCollection;
 
   if (!normalised.features.length) {
