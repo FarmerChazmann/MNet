@@ -266,6 +266,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         try { window._openedDatasetLayers.forEach((layer) => window.map.removeLayer(layer)); } catch {}
       }
       window._openedDatasetLayers = [];
+      const mnetToggle = document.getElementById("mnet-toggle");
+      if (mnetToggle) mnetToggle.style.display = "none";
+      if (typeof window.setMNetFilterEnabled === "function") {
+        window.setMNetFilterEnabled(true);
+      } else {
+        window._mnetFilterEnabled = true;
+      }
       if (previousUserId) {
         try { await clearCloudCache(previousUserId); } catch (err) { console.error("[auth] clearCloudCache failed:", err); }
       }

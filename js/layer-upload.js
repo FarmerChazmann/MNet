@@ -117,8 +117,13 @@ function loadStoredAttributeMapping() {
     const raw = localStorage.getItem(ATTRIBUTE_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && parsed.mapping) {
-      return parsed;
+    if (parsed && typeof parsed === "object") {
+      if (parsed.mapping) {
+        if (typeof parsed.forceMnetYes === "undefined") {
+          parsed.forceMnetYes = false;
+        }
+        return parsed;
+      }
     }
   } catch (err) {
     console.warn("[mapper] Failed to load stored mapping:", err);
@@ -151,7 +156,8 @@ function mappingIsValid(mapping, stats, forceMnetYes = false) {
   if (!baseValid) return false;
   if (forceMnetYes) return true;
   const source = mapping.mnet;
-  return typeof source === "string" && source && stats.samples[source];
+  if (!source) return true;
+  return typeof source === "string" && stats.samples[source];
 }
 
 function collectPropertyStats(featureCollection, sampleLimit = 200) {
@@ -215,7 +221,7 @@ function updateMapperSamples(refs, stats) {
       } else {
         select.disabled = false;
         const key = select.value;
-        sampleEl.textContent = key ? describeSamples(stats.samples[key]) : "Select a property";
+        sampleEl.textContent = key ? describeSamples(stats.samples[key]) : "No property selected (defaults to No).";
       }
       return;
     }
@@ -226,14 +232,13 @@ function updateMapperSamples(refs, stats) {
 }
 
 function updateMapperApplyState(refs) {
-  const { selects, apply, forceMnet } = refs;
+  const { selects, apply } = refs;
   if (!apply) return;
   const requiredSelected =
     selects.grower?.value &&
     selects.farm?.value &&
     selects.field?.value;
-  const mnetSelected = forceMnet?.checked || Boolean(selects.mnet?.value);
-  apply.disabled = !(requiredSelected && mnetSelected);
+  apply.disabled = !requiredSelected;
 }
 
 function showAttributeMapperDialog(stats, defaults = {}) {
@@ -321,10 +326,14 @@ async function requestAttributeMapping(featureCollection) {
 
   let defaultMapping = null;
   let defaultForce = false;
-  if (sessionAttributeMapping && mappingIsValid(sessionAttributeMapping.mapping, stats, sessionAttributeMapping.forceMnetYes)) {
-    defaultMapping = sessionAttributeMapping.mapping;
-    defaultForce = Boolean(sessionAttributeMapping.forceMnetYes);
-  } else if (stored && mappingIsValid(stored.mapping, stats, stored.forceMnetYes)) {
+  if (sessionAttributeMapping) {
+    const sessionMapping = sessionAttributeMapping.mapping || sessionAttributeMapping;
+    const sessionForce = Boolean(sessionAttributeMapping.forceMnetYes);
+    if (mappingIsValid(sessionMapping, stats, sessionForce)) {
+      defaultMapping = sessionMapping;
+      defaultForce = sessionForce;
+    }
+  } else if (stored && stored.mapping && mappingIsValid(stored.mapping, stats, stored.forceMnetYes ?? false)) {
     defaultMapping = stored.mapping;
     defaultForce = Boolean(stored.forceMnetYes);
   }
@@ -384,14 +393,14 @@ function applyMappingToFeatureCollection(featureCollection, mapping, options = {
     } else if (mapping.mnet) {
       assignValue(props, "mnet", mapping.mnet);
     } else {
-      delete props.mnet;
+      props.mnet = "no";
     }
     if (typeof props.mnet === "string") {
       const normalised = props.mnet.trim().toLowerCase();
-      if (normalised) {
-        props.mnet = normalised;
+      if (['yes','true','1','y'].includes(normalised)) {
+        props.mnet = "yes";
       } else {
-        delete props.mnet;
+        props.mnet = "no";
       }
     }
     const hasAll =
@@ -568,8 +577,16 @@ function renderGeoJSONOnMap(fc) {
   }
 
   const layer = L.geoJSON(fc, {
-    style: { color: "#1f3763", weight: 2, opacity: 0.85, fillOpacity: 0.15 }
+    style: (feature) => {
+      if (typeof window._mnetStyleForFeature === "function") {
+        return window._mnetStyleForFeature(feature);
+      }
+      return { color: "#1aa560", weight: 1.9, opacity: 0.85, fillOpacity: 0.18 };
+    }
   }).addTo(window.map);
+  if (typeof window._mnetStyleForFeature === "function") {
+    layer._mnetStyleFn = window._mnetStyleForFeature;
+  }
 
   // keep a handle so auto-open-all can clear/replace it later
   window._lastUploadedLayer = layer;

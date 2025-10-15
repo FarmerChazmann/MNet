@@ -4,8 +4,8 @@ import { streamGrowerDatasets } from "./data.js";
 
 const toastEl = document.getElementById("data-toast");
 let toastTimer = null;
-const MNET_ACTIVE_COLOR = "#1aa560";
-const MNET_DEFAULT_COLOR = "#1f3763";
+const MNET_DEFAULT_COLOR = "#1aa560";
+const MNET_ACTIVE_COLOR = "#2b60f1";
 
 if (typeof window !== "undefined" && typeof window._mnetFilterEnabled === "undefined") {
   window._mnetFilterEnabled = true;
@@ -26,24 +26,36 @@ function showDataToast(message, duration = 2000) {
 window.showDataToast = showDataToast;
 
 /** Add a FeatureCollection to Leaflet and return the created group layer */
+function featureIsMNet(feature) {
+  const value = feature?.properties?.mnet;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const norm = value.trim().toLowerCase();
+    return norm === "yes" || norm === "true" || norm === "1" || norm === "y";
+  }
+  return false;
+}
+
 function styleForFeature(feature) {
   const highlight = Boolean(window._mnetFilterEnabled);
-  const isMNet = Boolean(feature?.properties?.mnet);
+  const isMNet = featureIsMNet(feature);
   if (highlight) {
     return {
       color: isMNet ? MNET_ACTIVE_COLOR : MNET_DEFAULT_COLOR,
-      weight: 2.2,
-      opacity: isMNet ? 0.95 : 0.85,
-      fillOpacity: isMNet ? 0.28 : 0.14,
+      weight: isMNet ? 2.8 : 1.9,
+      opacity: isMNet ? 0.96 : 0.85,
+      fillOpacity: isMNet ? 0.3 : 0.16,
     };
   }
   return {
     color: MNET_DEFAULT_COLOR,
-    weight: 2,
+    weight: 1.9,
     opacity: 0.85,
-    fillOpacity: 0.15,
+    fillOpacity: 0.18,
   };
 }
+
+window._mnetStyleForFeature = styleForFeature;
 
 function addFC(fc, name) {
   if (!fc || !window.map || !window.L) return null;
@@ -94,7 +106,7 @@ function updateMNetToggleUI() {
   const enabled = Boolean(window._mnetFilterEnabled);
   mnetToggleButton.classList.toggle("active", enabled);
   const indicator = mnetToggleButton.querySelector(".pill-indicator");
-  if (indicator) indicator.textContent = enabled ? "ON" : "ALL";
+  if (indicator) indicator.textContent = enabled ? "YES" : "ALL";
 }
 
 if (mnetToggleButton) {
@@ -103,8 +115,11 @@ if (mnetToggleButton) {
     updateMNetToggleUI();
     restyleAllLayers();
     if (typeof showDataToast === "function") {
-      const state = window._mnetFilterEnabled ? "highlighting" : "showing";
-      showDataToast(`MNet ${state} all growers`, 1600);
+      if (window._mnetFilterEnabled) {
+        showDataToast("MNet highlighting enabled (Yes = blue, No = green)", 2000);
+      } else {
+        showDataToast("MNet highlighting disabled (all green)", 1600);
+      }
     }
   });
   updateMNetToggleUI();
@@ -142,8 +157,14 @@ export async function openAllDatasets(options = {}) {
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
+    if (mnetToggleButton) mnetToggleButton.style.display = "none";
     console.info("[openAllDatasets] no user session; skipping.");
     return { groups: [], source: "anonymous" };
+  }
+
+  if (mnetToggleButton) {
+    mnetToggleButton.style.display = "inline-flex";
+    updateMNetToggleUI();
   }
 
   // If the uploader drew a temporary layer, clear it (optional)
@@ -187,7 +208,8 @@ export async function openAllDatasets(options = {}) {
 
       if (typeof showDataToast === "function") {
         const mnetLabel = grower?.mnet ? "Yes" : "No";
-        const prefix = `Loaded ${validRows.length ? fieldCount : 0} field${fieldCount === 1 ? "" : "s"} for ${grower.grower_name} (MNet: ${mnetLabel})`;
+        const fieldAmount = validRows.length ? fieldCount : 0;
+        const prefix = `Loaded ${fieldAmount} field${fieldAmount === 1 ? "" : "s"} for ${grower.grower_name} (MNet: ${mnetLabel})`;
         const suffix = total > 0 ? ` (${growersLoaded}/${total} growers)` : "";
         showDataToast(prefix + suffix, 1800);
       }
