@@ -1,6 +1,6 @@
 // js/auto-open-all.js
 import { supabase } from "./auth.js";
-import { cacheCloudDatasets, loadCachedCloudDatasets, fetchCloudDatasets } from "./data.js";
+import { streamGrowerDatasets } from "./data.js";
 
 const toastEl = document.getElementById("data-toast");
 let toastTimer = null;
@@ -65,9 +65,7 @@ function normalizeRows(list) {
 /** Fetch all datasets (with geojson) for the current user and draw them */
 export async function openAllDatasets(options = {}) {
   const {
-    forceRefresh = false,
     fitToBounds = true,
-    useCacheFallback = true,
   } = options;
 
   const { data: { user } } = await supabase.auth.getUser();
@@ -84,114 +82,90 @@ export async function openAllDatasets(options = {}) {
 
   clearAutoOpened();
 
-  let rows = [];
-  let source = "cloud";
-
-  // Optionally seed from cache first to avoid blank flashes
-  if (!forceRefresh && useCacheFallback) {
-    rows = normalizeRows(await loadCachedCloudDatasets(user.id));
-    if (rows.length) source = "cache";
-  }
-
   let fetchError = null;
+  const groups = [];
+  let growersLoaded = 0;
+  let fieldsLoaded = 0;
+  let totalGrowers = 0;
+
   try {
-    const data = await fetchCloudDatasets(user.id);
-    if (Array.isArray(data) && data.length) {
-      rows = normalizeRows(data);
-      source = "cloud";
-      if (useCacheFallback) {
-        try {
-          await cacheCloudDatasets(user.id, data);
-        } catch (cacheErr) {
-          console.warn("[openAllDatasets] failed to cache datasets locally:", cacheErr);
+    const growers = await streamGrowerDatasets(user.id, async ({ grower, datasets, fieldCount, index, total }) => {
+      const rows = normalizeRows(datasets);
+      const validRows = rows.filter(
+        (row) =>
+          row &&
+          row.geojson &&
+          typeof row.geojson === "object" &&
+          row.geojson.type === "FeatureCollection" &&
+          Array.isArray(row.geojson.features) &&
+          row.geojson.features.length
+      );
+
+      if (validRows.length) {
+        for (const row of validRows) {
+          const g = addFC(row.geojson, row.name);
+          if (g) groups.push(g);
         }
+        window._openedDatasetLayers = groups;
+        fieldsLoaded += fieldCount;
       }
-    } else if (!rows.length && useCacheFallback) {
-      rows = normalizeRows(await loadCachedCloudDatasets(user.id));
-      source = rows.length ? "cache" : "empty";
-      if (!rows.length) {
-        console.info("[openAllDatasets] no datasets found for user.");
+
+      growersLoaded += 1;
+      totalGrowers = total;
+
+      if (typeof showDataToast === "function") {
+        const prefix = `Loaded ${validRows.length ? fieldCount : 0} field${fieldCount === 1 ? "" : "s"} for ${grower.grower_name}`;
+        const suffix = total > 0 ? ` (${growersLoaded}/${total} growers)` : "";
+        showDataToast(prefix + suffix, 1800);
+      }
+    });
+
+    if (!growers || !growers.length) {
+      if (fitToBounds && typeof window.resetMapView === "function") {
+        window.resetMapView();
+      }
+      if (typeof showDataToast === "function") {
+        showDataToast("No growers found to draw.", 1500);
+      }
+      return { groups: [], source: "cloud" };
+    }
+
+    if (fitToBounds && groups.length && window.map) {
+      try {
+        const fg = L.featureGroup(groups);
+        const bounds = fg.getBounds();
+        if (bounds && bounds.isValid && bounds.isValid()) {
+          window.map.fitBounds(bounds, { padding: [24, 24] });
+        }
+      } catch (boundsErr) {
+        console.warn("[openAllDatasets] fitBounds failed:", boundsErr);
       }
     }
+
+    if (window.map) {
+      setTimeout(() => {
+        try { window.map.invalidateSize(); } catch {}
+      }, 0);
+    }
+
+    if (typeof showDataToast === "function") {
+      const growerWord = growersLoaded === 1 ? "grower" : "growers";
+      const fieldWord = fieldsLoaded === 1 ? "field" : "fields";
+      const totalPart = totalGrowers && totalGrowers !== growersLoaded
+        ? ` (${growersLoaded}/${totalGrowers} growers)`
+        : "";
+      showDataToast(`Loaded ${fieldsLoaded} ${fieldWord} across ${growersLoaded} ${growerWord}${totalPart}`, 2200);
+    }
+
+    return { groups, source: "cloud", error: null };
   } catch (err) {
     fetchError = err;
     console.error("[openAllDatasets] select error:", err);
-    if (!rows.length && useCacheFallback) {
-      rows = normalizeRows(await loadCachedCloudDatasets(user.id));
-      source = rows.length ? "cache" : "error";
-    }
-  }
-
-  const validRows = rows.filter(
-    (row) =>
-      row &&
-      row.geojson &&
-      typeof row.geojson === "object" &&
-      row.geojson.type === "FeatureCollection" &&
-      Array.isArray(row.geojson.features) &&
-      row.geojson.features.length
-  );
-  const growersCount = validRows.length;
-  const totalFields = validRows.reduce(
-    (sum, row) => sum + (Array.isArray(row.geojson?.features) ? row.geojson.features.length : 0),
-    0
-  );
-
-  if (!growersCount) {
-    if (fitToBounds && typeof window.resetMapView === "function") {
-      window.resetMapView();
-    }
-    if (rows.length && !fetchError) {
-      console.info("[openAllDatasets] datasets retrieved but contained no features.");
-    }
     if (typeof showDataToast === "function") {
-      const message = fetchError
-        ? "Loaded growers from cache (none available)."
-        : "No growers found to draw.";
-      showDataToast(message, 1500);
+      showDataToast("Could not load datasets from the cloud.", 2000);
     }
-    return { groups: [], source, error: fetchError };
+    return { groups: [], source: "error", error: fetchError };
   }
-
-  const groups = [];
-  for (const row of validRows) {
-    const g = addFC(row.geojson, row.name);
-    if (g) groups.push(g);
-  }
-  window._openedDatasetLayers = groups;
-
-  // Fit map to everything
-  if (fitToBounds && groups.length && window.map) {
-    try {
-      const fg = L.featureGroup(groups);
-      const bounds = fg.getBounds();
-      if (bounds && bounds.isValid && bounds.isValid()) {
-        window.map.fitBounds(bounds, { padding: [24, 24] });
-      }
-    } catch (boundsErr) {
-      console.warn("[openAllDatasets] fitBounds failed:", boundsErr);
-    }
-  }
-
-  if (window.map) {
-    setTimeout(() => {
-      try { window.map.invalidateSize(); } catch {}
-    }, 0);
-  }
-
-  if (typeof showDataToast === "function") {
-    const growerWord = growersCount === 1 ? "grower" : "growers";
-    const fieldWord = totalFields === 1 ? "field" : "fields";
-    let message = `Loaded ${totalFields} ${fieldWord} across ${growersCount} ${growerWord}`;
-    if (source === "cache") {
-      message += " (cached)";
-    } else if (source === "error") {
-      message += " (offline cache)";
-    }
-    showDataToast(message, 2000);
-  }
-
-  return { groups, source, error: fetchError };
 }
 
 // Auto-run after load (covers refresh with persisted session)

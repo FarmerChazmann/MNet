@@ -230,7 +230,9 @@ export async function clearCloudCache(userId) {
   await Promise.all(removals);
 }
 
-async function fetchFieldRows(_userId) {
+async function fetchFieldRows(options = {}) {
+  const { growerId } = options;
+
   const selectColumns = `
       field_id,
       field_name,
@@ -240,7 +242,7 @@ async function fetchFieldRows(_userId) {
       field_boundary:field_boundary_geojson,
       properties,
       updated_at,
-      farms (
+      farms:farms!inner (
         farm_id,
         farm_name,
         growers (
@@ -255,11 +257,17 @@ async function fetchFieldRows(_userId) {
   let from = 0;
 
   while (true) {
-    const { data, error } = await supabase
+    let query = supabase
       .from("fields")
       .select(selectColumns)
       .order("updated_at", { ascending: false })
       .range(from, from + batchSize - 1);
+
+    if (growerId) {
+      query = query.eq("farms.grower_id", growerId);
+    }
+
+    const { data, error } = await query;
 
     if (error) throw error;
     if (!Array.isArray(data) || !data.length) break;
@@ -273,6 +281,34 @@ async function fetchFieldRows(_userId) {
 }
 
 export async function fetchCloudDatasets(userId) {
-  const rows = await fetchFieldRows(userId);
+  const rows = await fetchFieldRows();
   return rowsToDatasetCollections(rows);
+}
+
+export async function streamGrowerDatasets(userId, onGrower) {
+  const { data: growers, error } = await supabase
+    .from("growers")
+    .select("grower_id,grower_name")
+    .order("grower_name", { ascending: true });
+
+  if (error) throw error;
+  const list = Array.isArray(growers) ? growers : [];
+  const total = list.length;
+
+  for (let index = 0; index < total; index++) {
+    const grower = list[index];
+    const rows = await fetchFieldRows({ growerId: grower.grower_id });
+    const datasets = rowsToDatasetCollections(rows);
+    if (typeof onGrower === "function") {
+      await onGrower({
+        grower,
+        datasets,
+        fieldCount: rows.length,
+        index,
+        total,
+      });
+    }
+  }
+
+  return list;
 }
