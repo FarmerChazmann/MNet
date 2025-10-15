@@ -283,19 +283,12 @@ async function requestAttributeMapping(featureCollection) {
   const stats = collectPropertyStats(featureCollection);
   const stored = loadStoredAttributeMapping();
 
-  if (stored?.remember && mappingIsValid(stored.mapping, stats)) {
-    sessionAttributeMapping = stored.mapping;
-    return stored.mapping;
-  }
-
+  let defaultMapping = null;
   if (mappingIsValid(sessionAttributeMapping, stats)) {
-    // Reuse in-session mapping if valid and user already confirmed earlier
-    return sessionAttributeMapping;
+    defaultMapping = sessionAttributeMapping;
+  } else if (stored && mappingIsValid(stored.mapping, stats)) {
+    defaultMapping = stored.mapping;
   }
-
-  const defaultMapping =
-    (mappingIsValid(sessionAttributeMapping, stats) && sessionAttributeMapping) ||
-    (stored && mappingIsValid(stored.mapping, stats) ? stored.mapping : null);
 
   const result = await showAttributeMapperDialog(stats, {
     mapping: defaultMapping,
