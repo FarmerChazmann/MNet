@@ -215,8 +215,8 @@
     .toggle-pill {
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 6px 14px;
+      position: relative;
+      padding: 6px 18px;
       border-radius: 999px;
       border: 1px solid rgba(255, 255, 255, 0.18);
       background: rgba(15, 19, 39, 0.72);
@@ -232,22 +232,48 @@
     }
 
     .toggle-pill.active {
-      background: #2b60f1;
       border-color: rgba(43, 96, 241, 0.9);
     }
 
-    .toggle-pill .pill-indicator {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      background: rgba(0, 0, 0, 0.22);
-      font-size: 11px;
+    .toggle-pill .pill-track {
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      width: 50%;
+      border-radius: 999px;
+      background: #2b60f1;
+      transition: transform 0.24s ease, background 0.24s ease;
+    }
+
+    .toggle-pill:not(.active) .pill-track {
+      transform: translateX(0);
+      background: #1aa560;
+    }
+
+    .toggle-pill.active .pill-track {
+      transform: translateX(100%);
+    }
+
+    .toggle-pill .pill-label {
+      position: relative;
+      z-index: 2;
+      font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.4px;
       text-transform: uppercase;
+      padding: 0 4px;
+      opacity: 0.5;
+      transition: opacity 0.24s ease;
+    }
+
+    .toggle-pill.active .pill-left,
+    .toggle-pill:not(.active) .pill-right {
+      opacity: 0.9;
+    }
+
+    .toggle-pill.active .pill-right,
+    .toggle-pill:not(.active) .pill-left {
+      opacity: 1;
     }
 
     .upload-progress {
@@ -923,8 +949,9 @@
   <div class="top-bar-right">
     <div id="topCenter" class="search-anchor"></div>
     <button id="mnet-toggle" class="toggle-pill" type="button" title="Toggle MNet highlighting" style="display:none;">
-      <span class="pill-label">MNet</span>
-      <span class="pill-indicator">YES</span>
+      <span class="pill-track"></span>
+      <span class="pill-label pill-left">MNet YES</span>
+      <span class="pill-label pill-right">MNet ALL</span>
     </button>
     <button id="profile-button" class="profile-avatar-btn" type="button" title="Account">
       <span id="profile-avatar-text" class="profile-avatar-text">??</span>
