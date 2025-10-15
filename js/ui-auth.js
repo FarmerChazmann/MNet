@@ -246,6 +246,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     const previousUserId = currentUserId;
     updateUserUI(user);
     if (user) {
+      const mnetToggle = document.getElementById("mnet-toggle");
+      if (mnetToggle) mnetToggle.style.display = "inline-flex";
       try {
         const migrated = await migrateLocalToCloud();
         if (migrated) {
